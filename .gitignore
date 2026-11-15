@@ -1,0 +1,16 @@
+# Local acceptance-test credentials (see CONTRIBUTING.md)
+.acc.env
+.acc-ee.env
+
+# Build and release output
+/dist/
+/terraform-provider-sonarqube
+
+# Terraform working files from trying examples locally
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+
+coverage.out

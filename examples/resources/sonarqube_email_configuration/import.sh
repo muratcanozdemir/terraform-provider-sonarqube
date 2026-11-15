@@ -1,0 +1,1 @@
+terraform import sonarqube_email_configuration.this email-configuration

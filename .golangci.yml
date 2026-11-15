@@ -1,0 +1,17 @@
+version: "2"
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - unconvert
+  exclusions:
+    presets: [comments, std-error-handling]
+    rules:
+      # Test servers and fixtures, not production code paths.
+      - path: _test\.go
+        linters: [gosec]

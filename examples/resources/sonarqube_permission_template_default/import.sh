@@ -1,0 +1,1 @@
+terraform import sonarqube_permission_template_default.example 'TRK'

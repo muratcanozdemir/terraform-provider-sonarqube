@@ -1,0 +1,195 @@
+name: Acceptance
+
+# Each job boots a SonarQube container and runs the acceptance tests against
+# it with a real Terraform binary. Runs are tiered:
+#
+#   pull request / push to main  oldest + newest Community Build, oldest
+#                                supported + latest Terraform
+#   release PR (release-please)  every Community Build in the matrix
+#   weekly schedule              every Community Build in the matrix
+#   manual dispatch              chosen releases ("all" by default)
+#
+# The Enterprise edition job runs only when the SONARQUBE_LICENSE secret is
+# set (a SonarQube Server Enterprise license). Pull requests from forks never
+# see secrets, so the job is skipped for them.
+on:
+  pull_request:
+    paths-ignore: ["docs/**", "**.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+  schedule:
+    - cron: "41 3 * * 1" # Mondays 03:41 UTC
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Space-separated SonarQube Community Build versions, or "all"'
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ALL_VERSIONS: >-
+    25.1.0.102122 25.4.0.105899 25.7.0.110598 25.10.0.114319
+    26.1.0.118079 26.4.0.121862 26.7.0.124771 26.11.0.134175
+  EDGE_VERSIONS: 25.1.0.102122 26.11.0.134175
+  ENTERPRISE_VERSION: 2026.5.5
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.plan.outputs.versions }}
+      licensed: ${{ steps.plan.outputs.licensed }}
+      enterprise_version: ${{ steps.plan.outputs.enterprise_version }}
+    steps:
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          INPUT_VERSIONS: ${{ inputs.versions }}
+          HAS_LICENSE: ${{ secrets.SONARQUBE_LICENSE != '' }}
+        run: |
+          case "$EVENT" in
+            schedule) list=$ALL_VERSIONS ;;
+            workflow_dispatch) list=$INPUT_VERSIONS; [ "$list" = all ] && list=$ALL_VERSIONS ;;
+            *) list=$EDGE_VERSIONS
+               [[ "$HEAD_REF" == release-please--* ]] && list=$ALL_VERSIONS ;;
+          esac
+          read -r -a versions <<< "$list"
+          {
+            echo "versions=$(printf '%s\n' "${versions[@]}" | jq -R . | jq -sc .)"
+            echo "licensed=$HAS_LICENSE"
+            echo "enterprise_version=$ENTERPRISE_VERSION"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "Community Build: ${versions[*]}"
+            [ "$HAS_LICENSE" = true ] && echo "Enterprise: $ENTERPRISE_VERSION" || echo "Enterprise: skipped (no SONARQUBE_LICENSE secret)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  community:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        sonarqube: ${{ fromJSON(needs.plan.outputs.versions) }}
+        terraform: ["1.5.7", "latest"]
+    name: CE ${{ matrix.sonarqube }} / TF ${{ matrix.terraform }}
+    services:
+      sonarqube:
+        image: sonarqube:${{ matrix.sonarqube }}-community
+        ports: ["9000:9000"]
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ matrix.terraform }}
+          terraform_wrapper: false
+      - name: Seed server
+        env:
+          SONAR_HOST: http://localhost:9000
+          SONARQUBE_ADMIN_PASSWORD: ${{ format('Acc-{0}-Pw!', github.run_id) }}
+        run: ./scripts/acc-seed.sh "$RUNNER_TEMP/acc.env"
+      - name: Acceptance tests
+        run: |
+          set -o pipefail
+          set -a; . "$RUNNER_TEMP/acc.env"; set +a
+          echo "::add-mask::$SONAR_TOKEN"
+          TF_ACC=1 go test -count=1 -timeout 40m -v ./internal/provider/ 2>&1 | tee acceptance.log
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: acceptance-ce-${{ matrix.sonarqube }}-tf-${{ matrix.terraform }}
+          path: acceptance.log
+
+  # The documented path from jdamata/sonarqube: apply with that provider,
+  # replace the provider in state, and require an empty plan with this one.
+  migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: Migration from jdamata/sonarqube (CE)
+    services:
+      sonarqube:
+        image: sonarqube:26.11.0.134175-community
+        ports: ["9000:9000"]
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Seed server
+        env:
+          SONAR_HOST: http://localhost:9000
+          SONARQUBE_ADMIN_PASSWORD: ${{ format('Acc-{0}-Pw!', github.run_id) }}
+        run: ./scripts/acc-seed.sh "$RUNNER_TEMP/acc.env"
+      - name: Migration test
+        run: |
+          set -a; . "$RUNNER_TEMP/acc.env"; set +a
+          echo "::add-mask::$SONAR_TOKEN"
+          ./scripts/migration-test.sh community
+
+  enterprise:
+    needs: plan
+    if: ${{ needs.plan.outputs.licensed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: Enterprise ${{ needs.plan.outputs.enterprise_version }}
+    services:
+      sonarqube:
+        image: sonarqube:${{ needs.plan.outputs.enterprise_version }}-enterprise
+        ports: ["9000:9000"]
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Seed server and install license
+        env:
+          SONAR_HOST: http://localhost:9000
+          SONARQUBE_ADMIN_PASSWORD: ${{ format('Acc-{0}-Pw!', github.run_id) }}
+          SONARQUBE_LICENSE: ${{ secrets.SONARQUBE_LICENSE }}
+        run: ./scripts/acc-seed.sh "$RUNNER_TEMP/acc.env"
+      - name: Acceptance tests
+        run: |
+          set -o pipefail
+          set -a; . "$RUNNER_TEMP/acc.env"; set +a
+          echo "::add-mask::$SONAR_TOKEN"
+          TF_ACC=1 go test -count=1 -timeout 40m -v ./internal/provider/ 2>&1 | tee acceptance.log
+      - name: Migration test
+        run: |
+          set -a; . "$RUNNER_TEMP/acc.env"; set +a
+          ./scripts/migration-test.sh enterprise
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: acceptance-enterprise
+          path: acceptance.log

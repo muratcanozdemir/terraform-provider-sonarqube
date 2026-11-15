@@ -1,0 +1,1 @@
+terraform import sonarqube_qualityprofile_deactivate_rule.example 'AY1234567890abcdef/java:S1135'
