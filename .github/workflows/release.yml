@@ -63,9 +63,8 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # Shipped binaries are built with the newest patched Go.
-          go-version: stable
-          check-latest: true
+          # The Go version CI tested and govulncheck checked (go.mod).
+          go-version-file: go.mod
           cache: false # a release is built from fresh downloads only
 
       - name: Unit tests

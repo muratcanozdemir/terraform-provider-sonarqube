@@ -1,6 +1,6 @@
 module github.com/muratcanozdemir/terraform-provider-sonarqube/tools
 
-go 1.26.6
+go 1.26.11
 
 tool github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs
 
