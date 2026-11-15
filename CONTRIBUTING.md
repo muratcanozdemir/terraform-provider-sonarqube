@@ -31,6 +31,29 @@ an env file (`set -a; . ./.acc.env; set +a`).
 
 `.acc.env` and `.acc-ee.env` hold an admin token and are git-ignored.
 
+### What CI runs
+
+The Acceptance workflow picks a tier per run (the tier is in the run name):
+
+| Tier | When | Tests | SonarQube |
+|------|------|-------|-----------|
+| `pr` | pull request | only those the change needs | oldest + newest Community Build, Enterprise |
+| `main` | push to main | all | oldest + newest Community Build, Enterprise |
+| `full` | release pull request, weekly, manual dispatch | all, plus the jdamata migration job | every supported Community Build, Enterprise |
+
+A pull request's tests come from `scripts/acc-test-map.txt`: each changed
+file selects tests, shared code (`common.go`, `provider.go`, `go.mod`, ...)
+selects all of them, and docs or release tooling select none. A file the map
+does not list selects all tests, so a new source file only needs a line there
+to narrow its pull requests. `make acc-select` shows what the current branch
+would run. Require the **Acceptance result** check: it reports on every pull
+request, also when no test job runs.
+
+Releases are gated: `release.yml` builds nothing until a `full` run has
+passed on the same code (`scripts/release-gate.sh`). release-please
+dispatches that run on its pull request. For a tag pushed by hand, run the
+Acceptance workflow on the tag first.
+
 ## Trying a local build
 
 Point Terraform at your build with a `dev_overrides` block in `~/.terraformrc`:

@@ -57,9 +57,9 @@ Required:
 
 Optional:
 
-- `field_values` (List of Map of String) Field values of a property-set setting.
-- `value` (String) Value of a single-value setting.
-- `values` (List of String) Values of a multi-value setting.
+- `field_values` (List of Map of String) Field values of a property-set setting. Must not be empty; remove the block to reset the setting.
+- `value` (String) Value of a single-value setting. Must not be empty; remove the block to reset the setting.
+- `values` (List of String) Values of a multi-value setting. Must not be empty; remove the block to reset the setting.
 
 ## Import
 

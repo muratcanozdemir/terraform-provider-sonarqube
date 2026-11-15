@@ -27,6 +27,7 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      pr: ${{ steps.release.outputs.pr }}
     steps:
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -34,11 +35,29 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # The release pull request is opened with the workflow token, so it does
+  # not trigger pull_request workflows. Dispatch the full acceptance tier on
+  # its branch instead; release.yml refuses to release code that has not
+  # passed it.
+  release-pr-acceptance:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch acceptance.yml
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+        run: gh workflow run acceptance.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+
   release:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     permissions:
       contents: write
+      actions: read # release.yml checks the acceptance runs
       id-token: write
       attestations: write
       artifact-metadata: write

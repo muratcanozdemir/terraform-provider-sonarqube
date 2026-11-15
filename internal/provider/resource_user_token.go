@@ -355,6 +355,10 @@ func (e *userTokenEphemeral) Schema(_ context.Context, _ ephemeral.SchemaRequest
 }
 
 func (e *userTokenEphemeral) Open(ctx context.Context, req ephemeral.OpenRequest, resp *ephemeral.OpenResponse) {
+	if e.p == nil {
+		addNotConfigured(&resp.Diagnostics)
+		return
+	}
 	var m userTokenEphemeralModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {
@@ -400,6 +404,9 @@ func (e *userTokenEphemeral) Open(ctx context.Context, req ephemeral.OpenRequest
 }
 
 func (e *userTokenEphemeral) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
+	if e.p == nil {
+		return // never opened
+	}
 	b, d := req.Private.GetKey(ctx, "token")
 	resp.Diagnostics.Append(d...)
 	var t struct{ Login, Name string }
