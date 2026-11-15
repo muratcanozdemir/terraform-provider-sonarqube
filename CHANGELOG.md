@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/muratcanozdemir/terraform-provider-sonarqube/compare/v1.0.1...v1.1.0) (2026-11-15)
+
+
+### Features
+
+* token rotation, branch retention, GitHub/GitLab/SCIM provisioning ([#11](https://github.com/muratcanozdemir/terraform-provider-sonarqube/issues/11)) ([821bff0](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/821bff02a7e330a0edea5139e9c1c30de576a405))
+
+
+### Bug Fixes
+
+* **deps:** use sonarqube-go-client 1.0.3 and drop the update-field workaround ([#10](https://github.com/muratcanozdemir/terraform-provider-sonarqube/issues/10)) ([8712916](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/87129166654bf7ab2b76aa8c66d3cd4a12bfb351))
+* scm_accounts updates, plugin lifecycle and secured keys in settings ([c253287](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/c25328785e02ec9fa2c80e46579d86500247d997))
+
 ## [1.0.1](https://github.com/muratcanozdemir/terraform-provider-sonarqube/compare/v1.0.0...v1.0.1) (2026-11-15)
 
 
