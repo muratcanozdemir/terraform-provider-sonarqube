@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/muratcanozdemir/terraform-provider-sonarqube/compare/v1.0.0...v1.0.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* 1) Avoid crash when provider settings are unknown at plan time 2) Empty sonarqube_settings ([f278173](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/f278173494ab4fc3dda612b7d0e6b38d6cd86379))
+* Two fixes for QoL ([2173aa6](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/2173aa646a746aea6dbc199d6e121e3d6bca9cde))
+
 ## 1.0.0 (2026-11-15)
 
 
