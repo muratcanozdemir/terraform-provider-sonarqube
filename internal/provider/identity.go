@@ -73,9 +73,11 @@ func (s identitySpec) setIdentity(ctx context.Context, state tfsdk.State, identi
 	return diags
 }
 
-// withIdentity adds resource identity to the resources made by newResource.
+// withIdentity adds resource identity to the resources made by newResource,
+// which it also guards (see guarded).
 func withIdentity(newResource func() resource.Resource, spec identitySpec) func() resource.Resource {
-	return func() resource.Resource { return &identityResource{inner: newResource(), spec: spec} }
+	inner := guarded(newResource)
+	return func() resource.Resource { return &identityResource{inner: inner(), spec: spec} }
 }
 
 type identityResource struct {

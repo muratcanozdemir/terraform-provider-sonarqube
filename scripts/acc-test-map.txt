@@ -1,0 +1,85 @@
+# Which acceptance tests a pull request runs, by changed file.
+#
+# Each line: <path glob> <selection>. The first matching line wins; globs are
+# bash patterns, matched against repo-relative paths. Selections:
+#
+#   ALL         run the whole acceptance suite
+#   NONE        no acceptance test (docs, release tooling, ...)
+#   MIGRATION   only the jdamata migration job
+#   <regex>     Go test names, '|'-separated prefixes (go test -run '^(...)')
+#
+# A changed internal/provider/*_test.go file selects the TestAcc functions it
+# defines, unless listed here. A file that matches no line selects ALL, so an
+# unlisted new source file is safe by default. Pushes to main, the release
+# pull request and the weekly schedule always run everything, so a mapping
+# that misses a test only delays the failure, it does not hide it.
+#
+# TestSelectionMap (internal/provider/acc_map_test.go) checks that every name
+# here is a prefix of a real acceptance test, so renames do not go unnoticed.
+
+# Shared code: every resource goes through it.
+internal/provider/common.go     ALL
+internal/provider/provider.go   ALL
+internal/provider/guard.go      ALL
+internal/provider/identity.go   ALL
+internal/provider/values.go     ALL
+internal/provider/provider_test.go  ALL
+internal/provider/helpers_test.go   ALL
+internal/provider/acc_map_test.go   NONE
+internal/provider/migrate.go    MIGRATION
+internal/provider/migrate_test.go   MIGRATION
+
+# One file, its resources and the tests that reach them.
+internal/provider/actions.go                    TestAccAction_
+internal/provider/data_source_branches.go       TestAccDataSources_branchesAndGateStatus
+internal/provider/data_source_identity.go       TestAccDataSources_identity|TestAccDataSources_notFound|TestAccDataSources_validation
+internal/provider/data_source_project.go        TestAccDataSources_project|TestAccDataSources_portfolio|TestAccDataSources_notFound|TestAccDataSources_validation
+internal/provider/data_source_quality.go        TestAccDataSources_quality|TestAccDataSources_notFound|TestAccDataSources_validation|TestAccQualityProfile_parentMustExist
+internal/provider/data_source_server.go         TestAccUserTokenEphemeral
+internal/provider/list.go                       TestAccListResources
+internal/provider/qualityprofile_backup.go      TestAccQualityProfile
+internal/provider/resource_alm.go               TestAccAlm|TestAccBinding
+internal/provider/resource_application_branch.go  TestAccApplicationBranch|TestAccDataSources_branchesAndGateStatus
+internal/provider/resource_delegation.go        TestAccQualityGate|TestAccQualityProfile
+internal/provider/resource_email_configuration.go TestAccEmailConfiguration|TestAccAction_sendTestEmail
+internal/provider/resource_group.go             TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccQualityGate|TestAccQualityProfile|TestAccIdentity|TestAccListResources|TestAccProvider_unknownConfig
+internal/provider/resource_permissions.go       TestAccPermission|TestAccAction_applyPermissionTemplate|TestAccDataSources_identity
+internal/provider/resource_project_extras.go    TestAccWebhook|TestAccNewCodePeriods|TestAccProjectLinksAndMainBranch|TestAccDataSources_branchesAndGateStatus|TestAccApplicationBranch
+internal/provider/resource_project.go           TestAccProject|TestAccSettings|TestAccIdentity|TestAccListResources
+internal/provider/resource_qualitygate.go       TestAccQualityGate|TestAccDataSources_quality|TestAccDataSources_branchesAndGateStatus|TestAccIdentity|TestAccListResources
+internal/provider/resource_qualityprofile.go    TestAccQualityProfile|TestAccDataSources_quality|TestAccIdentity|TestAccListResources
+internal/provider/resource_rule.go              TestAccQualityProfile|TestAccDataSources_quality
+internal/provider/resource_setting.go           TestAccSettings|TestAccSecuredSetting|TestAccProvider_unknownConfig
+internal/provider/resource_user.go              TestAccUser|TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccIdentity|TestAccListResources
+internal/provider/resource_user_token.go        TestAccUserToken
+internal/provider/resource_views.go             TestAccApplicationAndPortfolio|TestAccPortfolio_|TestAccApplicationBranch|TestAccDataSources_portfolio
+internal/provider/settings.go                   TestAccSettings|TestAccSecuredSetting|TestAccProject_lifecycle|TestAccApplicationAndPortfolio|TestAccPortfolio_hierarchy
+
+# Test helpers and fixtures used by the migration job only.
+scripts/migration-test.sh       MIGRATION
+test/migration/*                MIGRATION
+
+# Build, test harness and dependencies.
+go.mod                          ALL
+go.sum                          ALL
+main.go                         ALL
+scripts/acc-seed.sh             ALL
+scripts/acc-select.sh           ALL
+scripts/acc-test-map.txt        ALL
+.github/workflows/acceptance.yml  ALL
+
+# Nothing an acceptance test exercises.
+docs/*                          NONE
+examples/*                      NONE
+templates/*                     NONE
+tools/*                         NONE
+*.md                            NONE
+LICENSE                         NONE
+.github/*                       NONE
+.golangci.yml                   NONE
+.goreleaser.yml                 NONE
+release-please-config.json      NONE
+.release-please-manifest.json   NONE
+terraform-registry-manifest.json  NONE
+scripts/release-gate.sh         NONE
+Makefile                        NONE

@@ -72,6 +72,10 @@ func (a *sendTestEmailAction) Schema(_ context.Context, _ action.SchemaRequest, 
 }
 
 func (a *sendTestEmailAction) Invoke(ctx context.Context, req action.InvokeRequest, resp *action.InvokeResponse) {
+	if a.p == nil {
+		addNotConfigured(&resp.Diagnostics)
+		return
+	}
 	var m sendTestEmailModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {
@@ -160,6 +164,10 @@ func (a *applyPermissionTemplateAction) ValidateConfig(ctx context.Context, req 
 }
 
 func (a *applyPermissionTemplateAction) Invoke(ctx context.Context, req action.InvokeRequest, resp *action.InvokeResponse) {
+	if a.p == nil {
+		addNotConfigured(&resp.Diagnostics)
+		return
+	}
 	var m applyPermissionTemplateModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &m)...)
 	if resp.Diagnostics.HasError() {

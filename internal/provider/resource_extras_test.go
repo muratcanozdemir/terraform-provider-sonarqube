@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -60,6 +61,42 @@ resource "sonarqube_secured_setting" "s" {
 				Config: cfg("45"), PlanOnly: true, ExpectNonEmptyPlan: true,
 			},
 		},
+	})
+}
+
+// TestAccSettings_emptyValue checks that empty values, which the API rejects,
+// fail at plan rather than half-way through an apply.
+func TestAccSettings_emptyValue(t *testing.T) {
+	steps := []resource.TestStep{}
+	for _, c := range []struct{ attr, cfg string }{
+		{"value", `resource "sonarqube_setting" "s" {
+  key   = "sonar.exclusions"
+  value = ""
+}`},
+		{"values", `resource "sonarqube_setting" "s" {
+  key    = "sonar.exclusions"
+  values = []
+}`},
+		{"field_values", `resource "sonarqube_setting" "s" {
+  key          = "sonar.issue.ignore.multicriteria"
+  field_values = []
+}`},
+		{"setting block value", `resource "sonarqube_project" "p" {
+  name    = "empty"
+  project = "tf-acc-empty-setting"
+  setting {
+    key   = "sonar.exclusions"
+    value = ""
+  }
+}`},
+	} {
+		steps = append(steps, resource.TestStep{Config: c.cfg, PlanOnly: true,
+			ExpectError: regexp.MustCompile(`(?s)(length must be at least 1|must contain at least 1 elements)`)})
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps:                    steps,
 	})
 }
 

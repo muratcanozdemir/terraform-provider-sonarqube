@@ -8,9 +8,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"golang.org/x/sync/errgroup"
 
@@ -137,11 +140,14 @@ func settingBlock() schema.ListNestedBlock {
 			Attributes: map[string]schema.Attribute{
 				"key": schema.StringAttribute{Required: true, Description: "Setting key."},
 				"value": schema.StringAttribute{Optional: true,
-					Description: "Value of a single-value setting."},
+					Description: "Value of a single-value setting. Must not be empty; remove the block to reset the setting.",
+					Validators:  []validator.String{stringvalidator.LengthAtLeast(1)}},
 				"values": schema.ListAttribute{Optional: true, ElementType: types.StringType,
-					Description: "Values of a multi-value setting."},
+					Description: "Values of a multi-value setting. Must not be empty; remove the block to reset the setting.",
+					Validators:  []validator.List{listvalidator.SizeAtLeast(1)}},
 				"field_values": schema.ListAttribute{Optional: true, ElementType: types.MapType{ElemType: types.StringType},
-					Description: "Field values of a property-set setting."},
+					Description: "Field values of a property-set setting. Must not be empty; remove the block to reset the setting.",
+					Validators:  []validator.List{listvalidator.SizeAtLeast(1)}},
 			},
 		},
 	}

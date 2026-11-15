@@ -11,6 +11,9 @@ name: Release
 # Requires the secrets GPG_PRIVATE_KEY (ASCII-armored) and GPG_PASSPHRASE; the
 # matching public key must be added to the namespace on registry.terraform.io.
 #
+# It first waits for, or refuses without, a passing full acceptance run of
+# the tagged code (acceptance-gate).
+#
 # release-please (.github/workflows/release-please.yml) calls this workflow with
 # the tag it has just created, because tags pushed with the workflow token do
 # not trigger workflows. Pushing a tag by hand also works.
@@ -37,7 +40,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A release ships only code that passed the full acceptance tier: every
+  # Community Build version, Enterprise and the migration job. See
+  # scripts/release-gate.sh.
+  acceptance-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/release-gate.sh "$TAG"
+
   release:
+    needs: acceptance-gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

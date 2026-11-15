@@ -156,6 +156,11 @@ func (p *sonarqubeProvider) Configure(ctx context.Context, req provider.Configur
 	// provider is configured again with known values before apply.
 	for _, v := range []types.String{cfg.Host, cfg.Token, cfg.User, cfg.Pass} {
 		if v.IsUnknown() {
+			if req.ClientCapabilities.DeferralAllowed {
+				// Terraform defers every resource of this provider to a later round.
+				resp.Deferred = &provider.Deferred{Reason: provider.DeferredReasonProviderConfigUnknown}
+				return
+			}
 			resp.Diagnostics.AddWarning("Provider configuration not yet known",
 				"The SonarQube provider configuration depends on values known only after apply. Resources that need the API cannot be planned accurately until then.")
 			return
@@ -266,7 +271,7 @@ func (p *sonarqubeProvider) Configure(ctx context.Context, req provider.Configur
 }
 
 func (p *sonarqubeProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{
+	return guardAll([]func() resource.Resource{
 		withIdentity(newAlmAzureResource, keyIdentity("DevOps platform setting")),
 		withIdentity(newAlmBitbucketResource, keyIdentity("DevOps platform setting")),
 		withIdentity(newAlmBitbucketCloudResource, keyIdentity("DevOps platform setting")),
@@ -306,11 +311,19 @@ func (p *sonarqubeProvider) Resources(context.Context) []func() resource.Resourc
 		newUserTokenResource,
 		newWebhookResource,
 		withIdentity(newEmailConfigurationResource, emailIdentity),
+	}, guardResource)
+}
+
+// guardResource guards a resource not already guarded by withIdentity.
+func guardResource(newResource func() resource.Resource) func() resource.Resource {
+	if _, ok := newResource().(*identityResource); ok {
+		return newResource
 	}
+	return guarded(newResource)
 }
 
 func (p *sonarqubeProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{
+	return guardAll([]func() datasource.DataSource{
 		newAlmAzureDataSource,
 		newAlmBitbucketDataSource,
 		newAlmBitbucketCloudDataSource,
@@ -338,7 +351,7 @@ func (p *sonarqubeProvider) DataSources(context.Context) []func() datasource.Dat
 		newUserDataSource,
 		newUserTokensDataSource,
 		newUsersDataSource,
-	}
+	}, guardedDataSource)
 }
 
 func (p *sonarqubeProvider) EphemeralResources(context.Context) []func() ephemeral.EphemeralResource {
