@@ -44,6 +44,8 @@ internal/provider/resource_delegation.go        TestAccQualityGate|TestAccQualit
 internal/provider/resource_email_configuration.go TestAccEmailConfiguration|TestAccAction_sendTestEmail
 internal/provider/resource_group.go             TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccQualityGate|TestAccQualityProfile|TestAccIdentity|TestAccListResources|TestAccProvider_unknownConfig
 internal/provider/resource_permissions.go       TestAccPermission|TestAccAction_applyPermissionTemplate|TestAccDataSources_identity
+internal/provider/resource_branch_retention.go   TestAccProjectBranchRetention
+internal/provider/resource_provisioning.go       TestAccGithubConfiguration|TestAccGitlabConfiguration|TestAccScimProvisioning|TestAccProvisioning_
 internal/provider/resource_project_extras.go    TestAccPlugin|TestAccWebhook|TestAccNewCodePeriods|TestAccProjectLinksAndMainBranch|TestAccDataSources_branchesAndGateStatus|TestAccApplicationBranch
 internal/provider/resource_project.go           TestAccProject|TestAccSettings|TestAccIdentity|TestAccListResources
 internal/provider/resource_qualitygate.go       TestAccQualityGate|TestAccDataSources_quality|TestAccDataSources_branchesAndGateStatus|TestAccIdentity|TestAccListResources

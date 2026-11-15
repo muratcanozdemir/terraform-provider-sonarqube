@@ -3,12 +3,12 @@
 page_title: "sonarqube_user_token Resource - SonarQube"
 subcategory: ""
 description: |-
-  A user token. The token value is stored in state; to use a token only during a run without storing it, use the sonarqube_user_token ephemeral resource. Import ID: login/name.
+  A user token. The token value is stored in state; to use a token only during a run without storing it, use the sonarqube_user_token ephemeral resource. With expiration_days and rotate_before_days, the token is replaced by a new one when it nears expiry; a plan made inside the rotation window shows the replacement. Import ID: login/name.
 ---
 
 # sonarqube_user_token (Resource)
 
-A user token. The token value is stored in state; to use a token only during a run without storing it, use the `sonarqube_user_token` ephemeral resource. Import ID: `login/name`.
+A user token. The token value is stored in state; to use a token only during a run without storing it, use the `sonarqube_user_token` ephemeral resource. With `expiration_days` and `rotate_before_days`, the token is replaced by a new one when it nears expiry; a plan made inside the rotation window shows the replacement. Import ID: `login/name`.
 
 ## Example Usage
 
@@ -27,6 +27,14 @@ resource "sonarqube_user_token" "scanner" {
   type = "GLOBAL_ANALYSIS_TOKEN"
 }
 
+# A CI token valid for 90 days and replaced by a new one in the 14 days
+# before it expires, at the first apply in that window.
+resource "sonarqube_user_token" "rotating" {
+  name               = "ci-rotating"
+  expiration_days    = 90
+  rotate_before_days = 14
+}
+
 # Token values are only available on creation.
 output "ci_token" {
   value     = sonarqube_user_token.ci.token
@@ -43,10 +51,12 @@ output "ci_token" {
 
 ### Optional
 
-- `expiration_date` (String) Expiration date (YYYY-MM-DD). Defaults to no expiration, or the server's maximum lifetime.
+- `expiration_date` (String) Expiration date (YYYY-MM-DD). Defaults to no expiration, or the server's maximum lifetime. Conflicts with `expiration_days`.
+- `expiration_days` (Number) Lifetime of the token in days, counted from the day it is issued; `expiration_date` then shows the resulting date. Changing it issues a new token.
 - `login_name` (String) User owning the token. Defaults to the authenticated user.
 - `metadata_only` (Boolean) Adopt an already issued token: track its metadata and revoke it on destroy, but never store its value. Creation fails if the named token does not exist or does not match `type`, `project_key` and `expiration_date`.
 - `project_key` (String) Project of a PROJECT_ANALYSIS_TOKEN.
+- `rotate_before_days` (Number) Replace the token this many days before it expires (`0`: on its expiration date, its last usable day). Requires `expiration_days`, and must be less than it. The replacement happens at the first apply in that window, so run Terraform regularly enough to catch it.
 - `type` (String) One of USER_TOKEN, GLOBAL_ANALYSIS_TOKEN, PROJECT_ANALYSIS_TOKEN.
 
 ### Read-Only

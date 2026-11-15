@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	eschema "github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
@@ -14,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -38,6 +40,27 @@ func tokenDate(s string) string {
 	return s
 }
 
+// today returns the current UTC date. Tests replace it to move time forward.
+var today = func() time.Time { return time.Now().UTC().Truncate(24 * time.Hour) }
+
+// tokenExpired reports whether a token with the expiration date expires
+// (YYYY-MM-DD) is expired today. SonarQube: a token "past the expiration"
+// is no longer usable, so it still works on that date.
+func tokenExpired(expires string, now time.Time) bool {
+	exp, err := time.Parse("2006-01-02", expires)
+	return err == nil && now.After(exp)
+}
+
+// rotationDue reports whether a token expiring on expires (YYYY-MM-DD) must
+// be replaced today, rotateBefore days ahead of its expiration date.
+func rotationDue(expires string, rotateBefore int64, now time.Time) bool {
+	exp, err := time.Parse("2006-01-02", expires)
+	if err != nil {
+		return false
+	}
+	return !now.Before(exp.AddDate(0, 0, -int(rotateBefore)))
+}
+
 // ---------------------------------------------------------------------------
 // sonarqube_user_token
 
@@ -55,6 +78,8 @@ type userTokenModel struct {
 	Name           types.String `tfsdk:"name"`
 	LoginName      types.String `tfsdk:"login_name"`
 	ExpirationDate types.String `tfsdk:"expiration_date"`
+	ExpirationDays types.Int64  `tfsdk:"expiration_days"`
+	RotateBefore   types.Int64  `tfsdk:"rotate_before_days"`
 	MetadataOnly   types.Bool   `tfsdk:"metadata_only"`
 	Token          types.String `tfsdk:"token"`
 	Type           types.String `tfsdk:"type"`
@@ -70,7 +95,9 @@ func (r *userTokenResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 	resp.Schema = schema.Schema{
 		Version: schemaVersion,
 		Description: "A user token. The token value is stored in state; to use a token only during a run without storing it, " +
-			"use the `sonarqube_user_token` ephemeral resource. Import ID: `login/name`.",
+			"use the `sonarqube_user_token` ephemeral resource. With `expiration_days` and `rotate_before_days`, the token is " +
+			"replaced by a new one when it nears expiry; a plan made inside the rotation window shows the replacement. " +
+			"Import ID: `login/name`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{Computed: true, Description: "Identifier of this resource in Terraform state.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
@@ -81,9 +108,17 @@ func (r *userTokenResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Description:   "User owning the token. Defaults to the authenticated user.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIfConfigured(), stringplanmodifier.UseStateForUnknown()}},
 			"expiration_date": schema.StringAttribute{Optional: true, Computed: true,
-				Description:   "Expiration date (YYYY-MM-DD). Defaults to no expiration, or the server's maximum lifetime.",
-				Validators:    []validator.String{dateValidator},
+				Description:   "Expiration date (YYYY-MM-DD). Defaults to no expiration, or the server's maximum lifetime. Conflicts with `expiration_days`.",
+				Validators:    []validator.String{dateValidator, stringvalidator.ConflictsWith(path.MatchRoot("expiration_days"))},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIfConfigured(), stringplanmodifier.UseStateForUnknown()}},
+			"expiration_days": schema.Int64Attribute{Optional: true,
+				Description:   "Lifetime of the token in days, counted from the day it is issued; `expiration_date` then shows the resulting date. Changing it issues a new token.",
+				Validators:    []validator.Int64{int64validator.AtLeast(1)},
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.RequiresReplace()}},
+			"rotate_before_days": schema.Int64Attribute{Optional: true,
+				Description: "Replace the token this many days before it expires (`0`: on its expiration date, its last usable day). Requires `expiration_days`, and must be less than it. " +
+					"The replacement happens at the first apply in that window, so run Terraform regularly enough to catch it.",
+				Validators: []validator.Int64{int64validator.AtLeast(0), int64validator.AlsoRequires(path.MatchRoot("expiration_days"))}},
 			"metadata_only": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
 				Description: "Adopt an already issued token: track its metadata and revoke it on destroy, but never store its value. " +
 					"Creation fails if the named token does not exist or does not match `type`, `project_key` and `expiration_date`."},
@@ -102,6 +137,15 @@ func (r *userTokenResource) ValidateConfig(ctx context.Context, req resource.Val
 	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if cfg.Type.IsUnknown() || cfg.ProjectKey.IsUnknown() {
 		return
+	}
+	if !cfg.RotateBefore.IsNull() && !cfg.RotateBefore.IsUnknown() && !cfg.ExpirationDays.IsNull() && !cfg.ExpirationDays.IsUnknown() &&
+		cfg.RotateBefore.ValueInt64() >= cfg.ExpirationDays.ValueInt64() {
+		resp.Diagnostics.AddAttributeError(path.Root("rotate_before_days"), "Invalid rotate_before_days",
+			"rotate_before_days must be less than expiration_days; otherwise every new token would be due for rotation at once.")
+	}
+	if cfg.MetadataOnly.ValueBool() && (!cfg.ExpirationDays.IsNull() || !cfg.RotateBefore.IsNull()) {
+		resp.Diagnostics.AddAttributeError(path.Root("metadata_only"), "Cannot rotate an adopted token",
+			"expiration_days and rotate_before_days issue new tokens, which an adopted (metadata_only) token does not allow.")
 	}
 	isProject := cfg.Type.ValueString() == "PROJECT_ANALYSIS_TOKEN"
 	if isProject && cfg.ProjectKey.IsNull() {
@@ -141,6 +185,29 @@ func (r *userTokenResource) ModifyPlan(ctx context.Context, req resource.ModifyP
 	if !plan.MetadataOnly.Equal(state.MetadataOnly) {
 		// Dependents must stop using the stored value in this same apply.
 		resp.Plan.SetAttribute(ctx, path.Root("token"), types.StringUnknown())
+	}
+	r.planRotation(ctx, &state, &plan, resp)
+}
+
+// planRotation replaces a renewable token that is due for rotation, and
+// warns about an expired token that cannot be renewed as configured.
+func (r *userTokenResource) planRotation(ctx context.Context, state, plan *userTokenModel, resp *resource.ModifyPlanResponse) {
+	expires := state.ExpirationDate.ValueString()
+	if expires == "" {
+		return
+	}
+	renewable := !plan.ExpirationDays.IsNull() && !plan.ExpirationDays.IsUnknown() && !plan.MetadataOnly.ValueBool()
+	rotateBefore := plan.RotateBefore.ValueInt64() // 0 when null: on the expiration date
+	if renewable && rotationDue(expires, rotateBefore, today()) {
+		resp.RequiresReplace = append(resp.RequiresReplace, path.Root("expiration_date"))
+		for _, a := range []string{"id", "token", "expiration_date"} {
+			resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root(a), types.StringUnknown())...)
+		}
+		return
+	}
+	if !renewable && tokenExpired(expires, today()) {
+		resp.Diagnostics.AddAttributeWarning(path.Root("expiration_date"), "Token expired",
+			fmt.Sprintf("Token %q expired after %s. Set expiration_days (and rotate_before_days) to have Terraform issue a new one, or replace it with -replace.", state.Name.ValueString(), expires))
 	}
 }
 
@@ -212,12 +279,16 @@ func (r *userTokenResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.AddError("Token not found", fmt.Sprintf("metadata_only adopts an existing token, but %q has no token named %q.", login, name))
 		return
 	}
+	expires := plan.ExpirationDate.ValueString()
+	if !plan.ExpirationDays.IsNull() {
+		expires = today().AddDate(0, 0, int(plan.ExpirationDays.ValueInt64())).Format("2006-01-02")
+	}
 	res, _, err := r.c().UserTokens.Generate(ctx, &sonarqube.UserTokensGenerateOptions{
 		Name:           name,
 		Login:          plan.LoginName.ValueString(),
 		Type:           plan.Type.ValueString(),
 		ProjectKey:     plan.ProjectKey.ValueString(),
-		ExpirationDate: plan.ExpirationDate.ValueString(),
+		ExpirationDate: expires,
 	})
 	if err != nil {
 		apiError(&resp.Diagnostics, "Unable to generate token "+name, err)
