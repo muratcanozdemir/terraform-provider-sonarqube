@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -628,6 +629,8 @@ func (r *projectMainBranchResource) ImportState(ctx context.Context, req resourc
 // ---------------------------------------------------------------------------
 // sonarqube_plugin
 
+var _ resource.ResourceWithModifyPlan = (*pluginResource)(nil)
+
 type pluginResource struct{ resourceBase }
 
 func newPluginResource() resource.Resource { return &pluginResource{} }
@@ -645,14 +648,62 @@ func (r *pluginResource) Metadata(_ context.Context, req resource.MetadataReques
 func (r *pluginResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Version: schemaVersion,
-		Description: "A plugin installed from the Marketplace. Installation and removal take effect when the server restarts; " +
-			"until then the plugin is pending, and `restart_required` is true.",
+		Description: "A plugin installed from the Marketplace, which only Community Build has: commercial editions bundle " +
+			"their plugins, and further ones are installed by hand (copied to `extensions/plugins`, then a restart). " +
+			"Installation and removal take effect when the server restarts; until then the plugin is pending, and " +
+			"`restart_required` is true. Installing needs `sonar.plugins.risk.consent` set to `ACCEPTED`. On a commercial " +
+			"edition, e.g. with state migrated from another provider, destroying the resource only removes it from the " +
+			"state, with a warning: delete the jar by hand to uninstall the plugin.",
 		Attributes: map[string]schema.Attribute{
 			"id":               schema.StringAttribute{Computed: true, Description: "Identifier of this resource in Terraform state.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"key":              schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}, Description: "Plugin key."},
 			"restart_required": schema.BoolAttribute{Computed: true, Description: "Whether a server restart is pending for this plugin."},
 		},
 	}
+}
+
+// ModifyPlan rejects a new plugin on a commercial edition, which has no
+// Marketplace to install it from.
+func (r *pluginResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || !req.State.Raw.IsNull() || !r.configured() {
+		return
+	}
+	info, err := r.p.info.get(ctx)
+	if err != nil {
+		resp.Diagnostics.AddWarning("Could not verify SonarQube edition", err.Error())
+		return
+	}
+	if info.hasEdition("developer") {
+		resp.Diagnostics.AddError("The Marketplace is not available on this server",
+			fmt.Sprintf("SonarQube %s edition has no Marketplace: its plugins are bundled, and further ones are installed by hand, "+
+				"by copying the plugin's jar to extensions/plugins and restarting the server. sonarqube_plugin only works with Community Build.", info.Edition))
+	}
+}
+
+// pendingPlugins lists the plugin operations that wait for a restart.
+type pendingPlugins struct {
+	Installing, Updating, Removing []struct{ Key string }
+}
+
+func (p *pendingPlugins) installing(key string) bool {
+	for _, x := range p.Installing {
+		if x.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *pluginResource) pending(ctx context.Context) (*pendingPlugins, error) {
+	_, raw, err := r.c().Plugins.Pending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pend pendingPlugins
+	if err := json.Unmarshal(raw.Body, &pend); err != nil {
+		return nil, err
+	}
+	return &pend, nil
 }
 
 // status reports whether the plugin is installed (or pending installation),
@@ -665,14 +716,8 @@ func (r *pluginResource) status(ctx context.Context, key string) (present, pendi
 	for _, p := range inst.Plugins {
 		present = present || p.Key == key
 	}
-	_, raw, err := r.c().Plugins.Pending(ctx)
+	pend, err := r.pending(ctx)
 	if err != nil {
-		return false, false, err
-	}
-	var pend struct {
-		Installing, Updating, Removing []struct{ Key string }
-	}
-	if err := json.Unmarshal(raw.Body, &pend); err != nil {
 		return false, false, err
 	}
 	for _, p := range pend.Installing {
@@ -698,6 +743,8 @@ func (r *pluginResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 	key := plan.Key.ValueString()
+	unlock := r.p.locks.lock("plugins")
+	defer unlock()
 	present, _, err := r.status(ctx, key)
 	if err != nil {
 		apiError(&resp.Diagnostics, "Unable to read plugins", err)
@@ -705,7 +752,13 @@ func (r *pluginResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 	if !present {
 		if _, err := r.c().Plugins.Install(ctx, &sonarqube.PluginsInstallOptions{Key: key}); err != nil {
-			apiError(&resp.Diagnostics, "Unable to install plugin "+key, err)
+			detail := explain(err)
+			// SonarQube: "Can't install plugin without accepting firstly plugins risk consent".
+			if hasMessage(err, "risk consent") {
+				detail += "\n\nAccept the risk of third-party plugins first: set sonar.plugins.risk.consent to ACCEPTED, " +
+					"e.g. with a sonarqube_setting this resource depends on."
+			}
+			resp.Diagnostics.AddError("Unable to install plugin "+key, detail)
 			return
 		}
 	}
@@ -747,9 +800,61 @@ func (r *pluginResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.c().Plugins.Uninstall(ctx, &sonarqube.PluginsUninstallOptions{Key: state.Key.ValueString()}); err != nil && !isGone(err) {
-		apiError(&resp.Diagnostics, "Unable to uninstall plugin "+state.Key.ValueString(), err)
+	key := state.Key.ValueString()
+	// Commercial editions have no Marketplace: their plugins are removed by
+	// hand, so destroying only forgets the plugin. When the edition cannot be
+	// detected, uninstalling is attempted as on Community Build.
+	if info, err := r.p.info.get(ctx); err == nil && info.hasEdition("developer") {
+		resp.Diagnostics.AddWarning("Plugin "+key+" left installed",
+			fmt.Sprintf("SonarQube %s edition has no Marketplace, so plugins cannot be uninstalled through the API. "+
+				"sonarqube_plugin.%s was removed from the Terraform state only: to uninstall the plugin, delete its jar from "+
+				"extensions/plugins (on every application node of a Data Center) and restart the server.", info.Edition, key))
+		return
 	}
+	unlock := r.p.locks.lock("plugins")
+	defer unlock()
+	pend, err := r.pending(ctx)
+	if err != nil {
+		apiError(&resp.Diagnostics, "Unable to read pending plugins", err)
+		return
+	}
+	if pend.installing(key) {
+		// Not installed yet, so it cannot be uninstalled: cancel the install.
+		if err := r.cancelInstall(ctx, key, pend); err != nil {
+			apiError(&resp.Diagnostics, "Unable to cancel the installation of plugin "+key, err)
+		}
+		return
+	}
+	if _, err := r.c().Plugins.Uninstall(ctx, &sonarqube.PluginsUninstallOptions{Key: key}); err != nil && !isGone(err) {
+		apiError(&resp.Diagnostics, "Unable to uninstall plugin "+key, err)
+	}
+}
+
+// cancelInstall cancels the pending installation of key. The API can only
+// cancel every pending operation at once, so the others are requested again.
+func (r *pluginResource) cancelInstall(ctx context.Context, key string, pend *pendingPlugins) error {
+	if _, err := r.c().Plugins.CancelAll(ctx); err != nil {
+		return err
+	}
+	var errs []error
+	for _, p := range pend.Installing {
+		if p.Key != key {
+			_, err := r.c().Plugins.Install(ctx, &sonarqube.PluginsInstallOptions{Key: p.Key})
+			errs = append(errs, err)
+		}
+	}
+	for _, p := range pend.Updating {
+		_, err := r.c().Plugins.Update(ctx, &sonarqube.PluginsUpdateOptions{Key: p.Key})
+		errs = append(errs, err)
+	}
+	for _, p := range pend.Removing {
+		_, err := r.c().Plugins.Uninstall(ctx, &sonarqube.PluginsUninstallOptions{Key: p.Key})
+		errs = append(errs, err)
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("cancelled all pending plugin operations, but could not restore the others: %w", err)
+	}
+	return nil
 }
 
 func (r *pluginResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

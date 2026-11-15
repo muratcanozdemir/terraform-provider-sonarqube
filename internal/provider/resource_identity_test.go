@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -65,14 +66,18 @@ resource "sonarqube_group_member" "m" {
 
 func TestAccUser_inPlaceChanges(t *testing.T) {
 	u := rname("usr")
-	cfg := func(login, name, pw string) string {
+	cfg := func(login, name, pw string, scm ...string) string {
+		if len(scm) == 0 {
+			scm = []string{"scm-" + u}
+		}
+		accounts, _ := json.Marshal(scm)
 		return fmt.Sprintf(`
 resource "sonarqube_user" "u" {
   login_name   = %q
   name         = %q
   password     = %q
-  scm_accounts = [%q]
-}`, login, name, pw, "scm-"+u)
+  scm_accounts = %s
+}`, login, name, pw, accounts)
 	}
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -90,6 +95,11 @@ resource "sonarqube_user" "u" {
 					resource.TestCheckResourceAttr("sonarqube_user.u", "name", "Two"),
 					resource.TestCheckResourceAttr("sonarqube_user.u", "scm_accounts.#", "1"),
 				),
+			},
+			{
+				// SCM accounts change in place.
+				Config: cfg(u+"-x", "Two", "Acc-Passw0rd-456!", "scm-a-"+u, "scm-b-"+u),
+				Check:  resource.TestCheckResourceAttr("sonarqube_user.u", "scm_accounts.#", "2"),
 			},
 		},
 	})
@@ -139,11 +149,18 @@ func TestAccUserExternalIdentity(t *testing.T) {
 			testAccPreCheck(t)
 			// An identity provider must be enabled; GitLab needs only two dummy credentials.
 			c := testClient(t)
-			for _, kv := range [][2]string{{"sonar.auth.gitlab.applicationId.secured", "dummy"}, {"sonar.auth.gitlab.secret.secured", "dummy"}, {"sonar.auth.gitlab.enabled", "true"}} {
-				if err := setSetting(context.Background(), c, "", kv[0], kv[1], nil, nil); err != nil {
+			keys := []string{"sonar.auth.gitlab.applicationId.secured", "sonar.auth.gitlab.secret.secured", "sonar.auth.gitlab.enabled"}
+			for i, v := range []string{"dummy", "dummy", "true"} {
+				if err := setSetting(context.Background(), c, "", keys[i], v, nil, nil); err != nil {
 					t.Fatal(err)
 				}
 			}
+			// Leave no GitLab configuration behind for other tests.
+			t.Cleanup(func() {
+				if err := resetSettings(context.Background(), c, "", keys); err != nil {
+					t.Errorf("resetting GitLab settings: %v", err)
+				}
+			})
 		},
 		ProtoV6ProviderFactories: testProviders,
 		Steps: []resource.TestStep{{

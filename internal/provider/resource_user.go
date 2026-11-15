@@ -239,14 +239,15 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	if !plan.IsLocal.Equal(state.IsLocal) {
 		body.Local, changed = ptr(plan.IsLocal.ValueBool()), true
 	}
+	lists := map[string][]string{}
 	if !plan.SCMAccounts.IsUnknown() && !plan.SCMAccounts.Equal(state.SCMAccounts) {
-		body.SCMAccounts = &sonarqube.UpdateFieldListString{Defined: ptr(true), Value: stringsOf(ctx, plan.SCMAccounts, &resp.Diagnostics)}
+		lists["scmAccounts"] = stringsOf(ctx, plan.SCMAccounts, &resp.Diagnostics)
 		changed = true
 	}
 	u := (*sonarqube.UserRestResponseForAdmins)(nil)
 	if changed {
-		var err error
-		u, _, err = r.c().UsersManagement.Update(ctx, &sonarqube.UsersManagementUpdateOptions{ID: state.UUID.ValueString(), Body: body})
+		u = new(sonarqube.UserRestResponseForAdmins)
+		err := mergePatch(ctx, r.c(), "/api/v2/users-management/users/{id}", map[string]string{"id": state.UUID.ValueString()}, body, lists, u)
 		if err != nil {
 			apiError(&resp.Diagnostics, "Unable to update user "+state.LoginName.ValueString(), err)
 			return

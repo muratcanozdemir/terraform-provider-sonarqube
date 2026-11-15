@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -64,9 +65,9 @@ resource "sonarqube_secured_setting" "s" {
 	})
 }
 
-// TestAccSettings_emptyValue checks that empty values, which the API rejects,
+// TestAccSettings_invalid checks that values the API rejects, or cannot read back,
 // fail at plan rather than half-way through an apply.
-func TestAccSettings_emptyValue(t *testing.T) {
+func TestAccSettings_invalid(t *testing.T) {
 	steps := []resource.TestStep{}
 	for _, c := range []struct{ attr, cfg string }{
 		{"value", `resource "sonarqube_setting" "s" {
@@ -93,6 +94,12 @@ func TestAccSettings_emptyValue(t *testing.T) {
 		steps = append(steps, resource.TestStep{Config: c.cfg, PlanOnly: true,
 			ExpectError: regexp.MustCompile(`(?s)(length must be at least 1|must contain at least 1 elements)`)})
 	}
+	// A secured key would look deleted on every refresh.
+	steps = append(steps, resource.TestStep{PlanOnly: true, ExpectError: regexp.MustCompile(`sonarqube_secured_setting`),
+		Config: `resource "sonarqube_setting" "s" {
+  key   = "sonar.auth.gitlab.secret.secured"
+  value = "x"
+}`})
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviders,
@@ -262,6 +269,133 @@ resource "sonarqube_webhook" "w" {
 				PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction("sonarqube_webhook.w", plancheck.ResourceActionUpdate)},
 			}, Check: hasSecret(true)},
 			{Config: cfg(""), Check: hasSecret(false)},
+		},
+	})
+}
+
+// TestAccPlugin installs a Marketplace plugin, which stays pending until a
+// restart, and destroys it, which must cancel only that installation.
+func TestAccPlugin(t *testing.T) {
+	if ed := testEdition(t); ed != "community" {
+		t.Skipf("the Marketplace is only in Community Build, server is %s", ed)
+	}
+	const key, other = "hadolint", "scmcvs"
+	c := testClient(t)
+	ctx := context.Background()
+	avail, _, err := c.Plugins.Available(ctx)
+	if err != nil {
+		t.Skipf("Marketplace not reachable: %v", err)
+	}
+	found := map[string]bool{}
+	for _, p := range avail.Plugins {
+		found[p.Key] = true
+	}
+	if !found[key] || !found[other] {
+		t.Skipf("plugins %s and %s are not both available from the Marketplace", key, other)
+	}
+	t.Cleanup(func() {
+		_, _ = c.Plugins.CancelAll(ctx)
+		_ = resetSettings(ctx, c, "", []string{"sonar.plugins.risk.consent"})
+	})
+	pending := func(k string) (bool, error) {
+		r := &pluginResource{resourceBase{&providerData{client: c}}}
+		p, err := r.pending(ctx)
+		return err == nil && p.installing(k), err
+	}
+	plugin := fmt.Sprintf(`
+resource "sonarqube_plugin" "p" {
+  key = %q
+}`, key)
+	consent := `
+resource "sonarqube_setting" "consent" {
+  key   = "sonar.plugins.risk.consent"
+  value = "ACCEPTED"
+}`
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		CheckDestroy: func(*terraform.State) error {
+			if ok, err := pending(key); err != nil || ok {
+				return fmt.Errorf("installation of %s still pending (err %v)", key, err)
+			}
+			if ok, err := pending(other); err != nil || !ok {
+				return fmt.Errorf("the pending installation of %s was not restored (err %v)", other, err)
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{
+				// The server's own refusal, then the provider's hint.
+				Config:      plugin,
+				ExpectError: regexp.MustCompile(`(?s)without accepting firstly plugins risk consent.*sonar.plugins.risk.consent`),
+			},
+			{
+				Config: consent + strings.Replace(plugin, "}", "  depends_on = [sonarqube_setting.consent]\n}", 1),
+				Check:  resource.TestCheckResourceAttr("sonarqube_plugin.p", "restart_required", "true"),
+			},
+			{ResourceName: "sonarqube_plugin.p", ImportState: true, ImportStateId: key, ImportStateVerify: true},
+			{
+				// Another plugin pending installation, outside Terraform: the
+				// destroy that follows must leave it pending.
+				PreConfig: func() {
+					if _, err := c.Plugins.Install(ctx, &sonarqube.PluginsInstallOptions{Key: other}); err != nil {
+						t.Fatal(err)
+					}
+				},
+				Config: consent + strings.Replace(plugin, "}", "  depends_on = [sonarqube_setting.consent]\n}", 1),
+			},
+		},
+	})
+}
+
+func TestAccPlugin_commercialRejectedAtPlan(t *testing.T) {
+	requireEdition(t, "developer")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config:      `resource "sonarqube_plugin" "p" { key = "checkstyle" }`,
+			PlanOnly:    true,
+			ExpectError: regexp.MustCompile(`The Marketplace is not available`),
+		}},
+	})
+}
+
+// TestAccPlugin_commercialDestroyForgets imports a plugin bundled with a
+// commercial edition, e.g. one in state migrated from jdamata, and destroys
+// it: the plugin must stay installed, since such editions remove plugins by
+// hand.
+func TestAccPlugin_commercialDestroyForgets(t *testing.T) {
+	requireEdition(t, "developer")
+	const key = "abap"
+	c := testClient(t)
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = c.Plugins.CancelAll(ctx) })
+	cfg := fmt.Sprintf(`
+resource "sonarqube_plugin" "p" {
+  key = %q
+}`, key)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		CheckDestroy: func(*terraform.State) error {
+			r := &pluginResource{resourceBase{&providerData{client: c}}}
+			present, pending, err := r.status(ctx, key)
+			if err != nil {
+				return err
+			}
+			if !present || pending {
+				return fmt.Errorf("plugin %s: installed %v, pending change %v; want installed and unchanged", key, present, pending)
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{Config: cfg, ResourceName: "sonarqube_plugin.p", ImportState: true, ImportStateId: key, ImportStatePersist: true},
+			{
+				Config:           cfg,
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()}},
+				Check:            resource.TestCheckResourceAttr("sonarqube_plugin.p", "restart_required", "false"),
+			},
 		},
 	})
 }

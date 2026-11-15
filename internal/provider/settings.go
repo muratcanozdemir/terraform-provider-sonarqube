@@ -171,6 +171,9 @@ func validateSettingBlocks(ctx context.Context, blocks []settingModel, diags *di
 			continue
 		}
 		k := b.Key.ValueString()
+		if isSecuredKey(b.Key) {
+			diags.AddError("Secured setting", fmt.Sprintf("%q is a secured setting, whose value SonarQube never returns. Manage it with sonarqube_secured_setting.", k))
+		}
 		if seen[k] {
 			diags.AddError("Duplicate setting", fmt.Sprintf("Setting %q is listed more than once.", k))
 		}

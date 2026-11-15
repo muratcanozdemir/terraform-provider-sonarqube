@@ -12,9 +12,10 @@ name: Acceptance
 #   full    every test on every Community Build in the matrix, plus Enterprise
 #           and the migration job: the weekly schedule, a manual dispatch with
 #           the defaults, and the release pull request. release-please opens
-#           that pull request with the workflow token, which does not trigger
-#           pull_request workflows, so release-please.yml dispatches this
-#           workflow on the release branch instead.
+#           that pull request with the workflow token, whose pull_request runs
+#           wait for a maintainer's approval, so release-please.yml dispatches
+#           this workflow on the release branch instead (workflow_dispatch
+#           runs start even when triggered by the workflow token).
 #   custom  manual dispatch with chosen versions or tests.
 #
 # Make "Acceptance result" the required status check: it reports on every
