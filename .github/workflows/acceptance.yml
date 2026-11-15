@@ -72,6 +72,8 @@ jobs:
       mode: ${{ steps.select.outputs.mode }}
       run: ${{ steps.select.outputs.run }}
       migration: ${{ steps.select.outputs.migration }}
+      examples: ${{ steps.select.outputs.examples }}
+      latest_version: ${{ steps.plan.outputs.latest_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -86,13 +88,20 @@ jobs:
         run: |
           if [[ "$EVENT" == pull_request && "$HEAD_REF" != release-please--* ]]; then
             ./scripts/acc-select.sh "origin/$BASE_REF" 2> selection.log
+            # Scenario tests (examples/scenarios) run when the provider or a scenario changes.
+            if git diff --name-only "origin/$BASE_REF...HEAD" |
+              grep -qE '^(internal/|examples/scenarios/|scripts/examples-test\.sh$|go\.(mod|sum)$)'; then
+              echo "examples=true" | tee -a "$GITHUB_OUTPUT"
+            else
+              echo "examples=false" | tee -a "$GITHUB_OUTPUT"
+            fi
           elif [[ "$EVENT" == workflow_dispatch && -n "$INPUT_TESTS" ]]; then
             if [[ ! "$INPUT_TESTS" =~ ^[A-Za-z0-9_|]+$ ]]; then
               echo "::error::tests must be '|'-separated test name prefixes"; exit 1
             fi
-            printf 'mode=selected\nrun=^(%s)\nmigration=false\n' "$INPUT_TESTS" | tee -a "$GITHUB_OUTPUT"
+            printf 'mode=selected\nrun=^(%s)\nmigration=false\nexamples=false\n' "$INPUT_TESTS" | tee -a "$GITHUB_OUTPUT"
           else
-            printf 'mode=all\nrun=\nmigration=true\n' | tee -a "$GITHUB_OUTPUT"
+            printf 'mode=all\nrun=\nmigration=true\nexamples=true\n' | tee -a "$GITHUB_OUTPUT"
           fi
       - id: plan
         env:
@@ -103,6 +112,7 @@ jobs:
           MODE: ${{ steps.select.outputs.mode }}
           RUN: ${{ steps.select.outputs.run }}
           MIGRATION: ${{ steps.select.outputs.migration }}
+          EXAMPLES: ${{ steps.select.outputs.examples }}
         run: |
           case "$EVENT" in
             schedule) list=$ALL_VERSIONS ;;
@@ -115,6 +125,7 @@ jobs:
             echo "versions=$(printf '%s\n' "${versions[@]}" | jq -R . | jq -sc .)"
             echo "licensed=$HAS_LICENSE"
             echo "enterprise_version=$ENTERPRISE_VERSION"
+            echo "latest_version=${EDGE_VERSIONS##* }"
           } >> "$GITHUB_OUTPUT"
           {
             case "$MODE" in
@@ -123,6 +134,7 @@ jobs:
               selected) echo "Tests: \`$RUN\`" ;;
             esac
             echo "Migration job: $MIGRATION"
+            echo "Scenario tests: $EXAMPLES"
             echo "Community Build: ${versions[*]}"
             [ "$HAS_LICENSE" = true ] && echo "Enterprise: $ENTERPRISE_VERSION" || echo "Enterprise: skipped (no SONARQUBE_LICENSE secret)"
             if [ -s selection.log ]; then echo; echo '```'; cat selection.log; echo '```'; fi
@@ -175,6 +187,41 @@ jobs:
         with:
           name: acceptance-ce-${{ matrix.sonarqube }}-tf-${{ matrix.terraform }}
           path: acceptance.log
+
+  # The configurations in examples/scenarios, applied with terraform test
+  # against the newest Community Build (Enterprise ones run in that job).
+  examples:
+    needs: plan
+    if: ${{ needs.plan.outputs.examples == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: Scenarios (CE ${{ needs.plan.outputs.latest_version }})
+    services:
+      sonarqube:
+        image: sonarqube:${{ needs.plan.outputs.latest_version }}-community
+        ports: ["9000:9000"]
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+      - name: Seed server
+        env:
+          SONAR_HOST: http://localhost:9000
+          SONARQUBE_ADMIN_PASSWORD: ${{ format('Acc-{0}-Pw!', github.run_id) }}
+        run: ./scripts/acc-seed.sh "$RUNNER_TEMP/acc.env"
+      - name: Scenario tests
+        run: |
+          set -a; . "$RUNNER_TEMP/acc.env"; set +a
+          echo "::add-mask::$SONAR_TOKEN"
+          ./scripts/examples-test.sh "$RUNNER_TEMP/acc.env"
 
   # The documented path from jdamata/sonarqube: apply with that provider,
   # replace the provider in state, and require an empty plan with this one.
@@ -252,6 +299,9 @@ jobs:
         run: |
           set -a; . "$RUNNER_TEMP/acc.env"; set +a
           ./scripts/migration-test.sh enterprise
+      - name: Scenario tests
+        if: ${{ needs.plan.outputs.examples == 'true' }}
+        run: ./scripts/examples-test.sh "$RUNNER_TEMP/acc.env"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

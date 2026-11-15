@@ -25,7 +25,7 @@ resource "sonarqube_project_links" "docs" {
 
 ### Required
 
-- `name` (String) Link name.
+- `name` (String) Link name. It cannot be `homepage`, `ci`, `issue`, `scm` or `scm_dev`, in any case: SonarQube turns such a link into a built-in link, which can then never be deleted (analyses set those from the scanner's `sonar.links.*` properties).
 - `project_key` (String) Project key.
 - `url` (String) Link URL.
 

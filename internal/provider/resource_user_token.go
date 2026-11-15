@@ -156,10 +156,40 @@ func (r *userTokenResource) ValidateConfig(ctx context.Context, req resource.Val
 	}
 }
 
+// requireOwnAnalysisToken fails the plan when an analysis token is to be
+// issued for another user: SonarQube only issues those to the caller.
+func (r *userTokenResource) requireOwnAnalysisToken(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	var typ, login types.String
+	var adopt types.Bool
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("type"), &typ)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("login_name"), &login)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("metadata_only"), &adopt)...)
+	if resp.Diagnostics.HasError() || !r.configured() || adopt.ValueBool() ||
+		login.IsNull() || login.IsUnknown() || typ.IsUnknown() ||
+		(typ.ValueString() != "GLOBAL_ANALYSIS_TOKEN" && typ.ValueString() != "PROJECT_ANALYSIS_TOKEN") {
+		return
+	}
+	me, _, err := r.c().Users.Current(ctx)
+	if err != nil || me == nil || me.Login == "" || me.Login == login.ValueString() {
+		return // let the server decide
+	}
+	resp.Diagnostics.AddAttributeError(path.Root("login_name"), "Analysis token for another user",
+		fmt.Sprintf("SonarQube issues a %s only to the user calling it, but login_name is %q and the provider authenticates as %q. "+
+			"Either configure a provider authenticated as %q (for example with an alias), issue a USER_TOKEN instead, "+
+			"or adopt a token %q issued themselves with metadata_only.",
+			typ.ValueString(), login.ValueString(), me.Login, login.ValueString(), login.ValueString()))
+}
+
 // ModifyPlan refuses to replace an adopted token: the provider cannot
 // reissue a credential it never held, so replacement would only revoke it.
 func (r *userTokenResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+	// The check applies only where a token is to be issued: an unchanged
+	// token must not stop planning when the provider's credentials change.
+	if req.State.Raw.IsNull() {
+		r.requireOwnAnalysisToken(ctx, req, resp)
 		return
 	}
 	var state, plan userTokenModel
@@ -187,6 +217,9 @@ func (r *userTokenResource) ModifyPlan(ctx context.Context, req resource.ModifyP
 		resp.Plan.SetAttribute(ctx, path.Root("token"), types.StringUnknown())
 	}
 	r.planRotation(ctx, &state, &plan, resp)
+	if len(resp.RequiresReplace) > 0 || !plan.LoginName.Equal(state.LoginName) || !plan.Type.Equal(state.Type) {
+		r.requireOwnAnalysisToken(ctx, req, resp)
+	}
 }
 
 // planRotation replaces a renewable token that is due for rotation, and

@@ -407,3 +407,22 @@ resource "sonarqube_plugin" "p" {
 		},
 	})
 }
+
+// A link named after a built-in type would become undeletable, so it is
+// refused at plan time.
+func TestAccProjectLinks_providedTypeRejected(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config: `
+resource "sonarqube_project_links" "l" {
+  project_key = "any"
+  name        = "Homepage"
+  url         = "https://example.com"
+}`,
+			PlanOnly:    true,
+			ExpectError: regexp.MustCompile(`(?i)homepage`),
+		}},
+	})
+}

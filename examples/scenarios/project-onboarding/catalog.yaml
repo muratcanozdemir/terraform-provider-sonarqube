@@ -1,0 +1,22 @@
+# The project catalogue: teams own projects. Adding an entry and applying
+# onboards a project; removing it deletes the project and its history.
+teams:
+  payments:
+    leads: [alice]
+    projects:
+      payments-api:
+        name: Payments API
+        main_branch: trunk
+        exclusions: ["**/generated/**"]
+        links:
+          Runbook: https://wiki.example.com/payments-api
+      payments-web:
+        name: Payments Web
+        visibility: public
+        languages: [js] # held to the company profile of each language
+  identity:
+    leads: [bob]
+    projects:
+      identity-service:
+        name: Identity Service
+        new_code: { type: NUMBER_OF_DAYS, value: "30" }

@@ -352,3 +352,23 @@ resource "sonarqube_user_token" "t" {
 		},
 	})
 }
+
+// SonarQube issues analysis tokens only to the caller; asking for one on
+// behalf of another user fails at plan time rather than at apply.
+func TestAccUserToken_analysisTokenForAnotherUserRejected(t *testing.T) {
+	login := rname("other")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config: fmt.Sprintf(`
+resource "sonarqube_user_token" "t" {
+  name       = "ci"
+  login_name = %q
+  type       = "GLOBAL_ANALYSIS_TOKEN"
+}`, login),
+			PlanOnly:    true,
+			ExpectError: regexp.MustCompile(`Analysis token for another user`),
+		}},
+	})
+}
