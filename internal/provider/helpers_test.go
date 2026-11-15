@@ -117,6 +117,39 @@ func TestTokenDate(t *testing.T) {
 	}
 }
 
+func TestRotationDue(t *testing.T) {
+	day := func(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
+	for _, c := range []struct {
+		expires string
+		before  int64
+		now     string
+		want    bool
+	}{
+		{"2027-01-31", 7, "2027-01-23", false}, // 8 days left
+		{"2027-01-31", 7, "2027-01-24", true},  // 7 days left
+		{"2027-01-31", 0, "2027-01-30", false},
+		{"2027-01-31", 0, "2027-01-31", true}, // its expiration date, the last usable day
+		{"2027-01-31", 0, "2027-03-01", true},
+		{"not a date", 7, "2027-01-31", false},
+	} {
+		if got := rotationDue(c.expires, c.before, day(c.now)); got != c.want {
+			t.Errorf("rotationDue(%s, %d, %s) = %v, want %v", c.expires, c.before, c.now, got, c.want)
+		}
+	}
+}
+
+func TestTokenExpired(t *testing.T) {
+	day := func(s string) time.Time { d, _ := time.Parse("2006-01-02", s); return d }
+	for now, want := range map[string]bool{"2027-01-30": false, "2027-01-31": false, "2027-02-01": true} {
+		if got := tokenExpired("2027-01-31", day(now)); got != want {
+			t.Errorf("tokenExpired(2027-01-31, %s) = %v, want %v", now, got, want)
+		}
+	}
+	if tokenExpired("not a date", day("2027-01-31")) {
+		t.Error("invalid date reported expired")
+	}
+}
+
 func TestSearchQ(t *testing.T) {
 	// SonarQube rejects search terms under 3 characters, and "anyone" is not a
 	// real group to search for.

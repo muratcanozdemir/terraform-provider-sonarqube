@@ -63,6 +63,8 @@ Resource names, arguments and state carry over; see the
   1.11+), an ephemeral
   `sonarqube_user_token` (Terraform 1.10+), and `metadata_only` tokens that
   are tracked and revoked without storing their value.
+- **Token rotation:** `sonarqube_user_token` can expire a set number of days
+  after creation and be replaced a set number of days before it expires.
 - **Safe under parallelism.** Quality profile hierarchy changes are
   serialized, because SonarQube deadlocks on concurrent ones.
 - **Quality profiles as code:** manage a profile's rules from a backup file

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
@@ -262,5 +263,92 @@ data "sonarqube_server" "s" {
 				return nil
 			},
 		}},
+	})
+}
+
+// TestAccUserToken_rotation moves the provider's clock into the rotation
+// window and expects the token to be replaced by one with a new lifetime.
+func TestAccUserToken_rotation(t *testing.T) {
+	realToday := today
+	t.Cleanup(func() { today = realToday })
+	shift := func(days int) {
+		today = func() time.Time { return realToday().AddDate(0, 0, days) }
+	}
+	date := func(days int) string { return realToday().AddDate(0, 0, days).Format("2006-01-02") }
+
+	name := rname("rot")
+	cfg := fmt.Sprintf(`
+resource "sonarqube_user_token" "t" {
+  name               = %q
+  expiration_days    = 30
+  rotate_before_days = 7
+}`, name)
+	var first string
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("sonarqube_user_token.t", "expiration_date", date(30)),
+					resource.TestCheckResourceAttrWith("sonarqube_user_token.t", "token", func(v string) error { first = v; return nil }),
+				),
+			},
+			{
+				// 8 days left: outside the 7-day window, nothing to do.
+				PreConfig: func() { shift(22) },
+				Config:    cfg, PlanOnly: true,
+			},
+			{
+				// 6 days left: replaced, with 30 days from the (shifted) day of issue.
+				PreConfig: func() { shift(24) },
+				Config:    cfg,
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectResourceAction("sonarqube_user_token.t", plancheck.ResourceActionReplace),
+				}},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("sonarqube_user_token.t", "expiration_date", date(54)),
+					resource.TestCheckResourceAttrWith("sonarqube_user_token.t", "token", func(v string) error {
+						if v == first {
+							return fmt.Errorf("token was not reissued")
+						}
+						return nil
+					}),
+				),
+			},
+		},
+	})
+}
+
+func TestAccUserToken_rotationValidation(t *testing.T) {
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{PlanOnly: true, ExpectError: regexp.MustCompile(`must be less than expiration_days`), Config: `
+resource "sonarqube_user_token" "t" {
+  name               = "x"
+  expiration_days    = 7
+  rotate_before_days = 7
+}`},
+			{PlanOnly: true, ExpectError: regexp.MustCompile(`(?s)expiration_days.*expiration_date|expiration_date.*expiration_days`), Config: `
+resource "sonarqube_user_token" "t" {
+  name            = "x"
+  expiration_days = 7
+  expiration_date = "2099-01-01"
+}`},
+			{PlanOnly: true, ExpectError: regexp.MustCompile(`(?s)rotate_before_days.*expiration_days`), Config: `
+resource "sonarqube_user_token" "t" {
+  name               = "x"
+  rotate_before_days = 7
+}`},
+			{PlanOnly: true, ExpectError: regexp.MustCompile(`Cannot rotate an adopted token`), Config: `
+resource "sonarqube_user_token" "t" {
+  name            = "x"
+  metadata_only   = true
+  expiration_days = 7
+}`},
+		},
 	})
 }
