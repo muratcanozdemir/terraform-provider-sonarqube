@@ -1,4 +1,4 @@
-.PHONY: build install test testacc testacc-ee acc-select docs docs-check lint fmt acc-up acc-ee-up acc-down
+.PHONY: build install test testacc testacc-ee examples-test examples-test-ee acc-select docs docs-check lint fmt acc-up acc-ee-up acc-down
 
 GOLANGCI_LINT ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 TFPLUGINDOCS  := go tool -modfile=tools/go.mod tfplugindocs
@@ -19,6 +19,12 @@ testacc: ## Acceptance tests against the Community Build server in .acc.env
 
 testacc-ee: ## Acceptance tests against the Enterprise server in .acc-ee.env
 	set -a; . ./.acc-ee.env; set +a; TF_ACC=1 go test -count=1 -timeout 60m -v ./internal/provider/
+
+examples-test: ## Apply the scenarios in examples/scenarios against the Community Build server in .acc.env
+	./scripts/examples-test.sh .acc.env
+
+examples-test-ee: ## The same against the Enterprise server in .acc-ee.env (runs the Enterprise-only scenarios too)
+	./scripts/examples-test.sh .acc-ee.env
 
 acc-select: ## Show which acceptance tests a pull request of this branch runs
 	./scripts/acc-select.sh origin/main

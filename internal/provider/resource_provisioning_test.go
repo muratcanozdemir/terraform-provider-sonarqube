@@ -160,6 +160,50 @@ resource "sonarqube_gitlab_configuration" "g" {
 	})
 }
 
+// The application secret and the provisioning token can be write-only.
+func TestAccGitlabConfiguration_writeOnly(t *testing.T) {
+	cfg := func(version string) string {
+		return fmt.Sprintf(`
+resource "sonarqube_gitlab_configuration" "g" {
+  enabled                = false
+  application_id         = "acc-app"
+  secret_wo              = "acc-secret-%[1]s"
+  provisioning_token_wo  = "glpat-acc-%[1]s"
+  credentials_wo_version = %[1]q
+}`, version)
+	}
+	const name = "sonarqube_gitlab_configuration.g"
+	noSecrets := resource.ComposeAggregateTestCheckFunc(
+		resource.TestCheckNoResourceAttr(name, "secret"),
+		resource.TestCheckNoResourceAttr(name, "secret_wo"),
+		resource.TestCheckNoResourceAttr(name, "provisioning_token"),
+		resource.TestCheckNoResourceAttr(name, "provisioning_token_wo"),
+		resource.TestCheckResourceAttr(name, "provisioning_token_set", "true"),
+	)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		Steps: []resource.TestStep{
+			{
+				Config: `
+resource "sonarqube_gitlab_configuration" "g" {
+  enabled        = false
+  application_id = "acc-app"
+  secret         = "plain"
+  secret_wo      = "wo"
+  credentials_wo_version = "1"
+}`,
+				ExpectError: regexp.MustCompile(`(?s)secret.*secret_wo`),
+			},
+			{Config: cfg("1"), Check: noSecrets},
+			{Config: cfg("2"), ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+				plancheck.ExpectResourceAction(name, plancheck.ResourceActionUpdate),
+			}}, Check: noSecrets},
+		},
+	})
+}
+
 // testCertificate returns a self-signed PEM certificate.
 func testCertificate(t *testing.T) string {
 	t.Helper()

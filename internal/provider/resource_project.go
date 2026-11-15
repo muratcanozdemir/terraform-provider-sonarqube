@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/muratcanozdemir/sonarqube-go-client/sonarqube"
@@ -103,8 +104,22 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 }
 
 func (r *projectResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	// The blocks are unknown when a dynamic block iterates over a value
+	// not known yet; they are checked again once it is.
+	var list types.List
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("setting"), &list)...)
+	if list.IsNull() || list.IsUnknown() {
+		return
+	}
 	var blocks []settingModel
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("setting"), &blocks)...)
+	for _, e := range list.Elements() {
+		if e.IsUnknown() {
+			continue
+		}
+		var b settingModel
+		resp.Diagnostics.Append(e.(types.Object).As(ctx, &b, basetypes.ObjectAsOptions{})...)
+		blocks = append(blocks, b)
+	}
 	validateSettingBlocks(ctx, blocks, &resp.Diagnostics)
 }
 
@@ -120,9 +135,17 @@ func (r *projectResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	if req.State.Raw.IsNull() {
 		return
 	}
-	var state, plan projectModel
+	// Only the attributes needed here are read from the plan: setting blocks
+	// may be unknown, which projectModel cannot hold.
+	var state projectModel
+	var plan struct {
+		Name, Project      types.String
+		RetrieveBadgeToken types.Bool
+	}
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("name"), &plan.Name)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("project"), &plan.Project)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("retrieve_badge_token"), &plan.RetrieveBadgeToken)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}

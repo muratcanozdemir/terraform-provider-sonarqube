@@ -128,3 +128,36 @@ func TestAccProject_alreadyExists(t *testing.T) {
 		}},
 	})
 }
+
+// Setting blocks whose count or values are unknown at plan time, as with a
+// dynamic block fed by another resource or a module input, are accepted and
+// applied once known.
+func TestAccProject_unknownSettingBlocks(t *testing.T) {
+	key := rname("unk")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config: fmt.Sprintf(`
+resource "terraform_data" "exclusions" {
+  input = ["**/generated/**"]
+}
+resource "sonarqube_project" "p" {
+  project = %[1]q
+  name    = %[1]q
+
+  dynamic "setting" {
+    for_each = length(terraform_data.exclusions.output) > 0 ? [1] : []
+    content {
+      key    = "sonar.exclusions"
+      values = terraform_data.exclusions.output
+    }
+  }
+}`, key),
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr("sonarqube_project.p", "setting.#", "1"),
+				resource.TestCheckResourceAttr("sonarqube_project.p", "setting.0.values.0", "**/generated/**"),
+			),
+		}},
+	})
+}

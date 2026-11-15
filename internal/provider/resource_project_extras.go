@@ -404,6 +404,10 @@ func (r *newCodePeriodsResource) ImportState(ctx context.Context, req resource.I
 
 type projectLinkResource struct{ resourceBase }
 
+// providedLinkTypes are the names SonarQube maps, case-insensitively, to a
+// built-in link type; such links cannot be deleted through the API.
+var providedLinkTypes = []string{"homepage", "ci", "issue", "scm", "scm_dev"}
+
 func newProjectLinkResource() resource.Resource { return &projectLinkResource{} }
 
 type projectLinkModel struct {
@@ -426,8 +430,11 @@ func (r *projectLinkResource) Schema(_ context.Context, _ resource.SchemaRequest
 		Attributes: map[string]schema.Attribute{
 			"id":          schema.StringAttribute{Computed: true, Description: "Identifier of this resource in Terraform state.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"project_key": schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Project key."},
-			"name": schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Link name.",
-				Validators: []validator.String{stringvalidator.LengthBetween(1, 128)}},
+			"name": schema.StringAttribute{Required: true, PlanModifiers: replace,
+				Description: "Link name. It cannot be `homepage`, `ci`, `issue`, `scm` or `scm_dev`, in any case: SonarQube turns such a link " +
+					"into a built-in link, which can then never be deleted (analyses set those from the scanner's `sonar.links.*` properties).",
+				Validators: []validator.String{stringvalidator.LengthBetween(1, 128),
+					stringvalidator.NoneOfCaseInsensitive(providedLinkTypes...)}},
 			"url": schema.StringAttribute{Required: true, PlanModifiers: replace, Description: "Link URL.",
 				Validators: []validator.String{stringvalidator.LengthBetween(1, 2048)}},
 			"type": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},

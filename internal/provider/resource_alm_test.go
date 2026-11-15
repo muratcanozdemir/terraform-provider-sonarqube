@@ -238,3 +238,105 @@ resource "sonarqube_alm_github" "g" {
 		},
 	})
 }
+
+// Personal access tokens and the remaining secrets have write-only forms too:
+// none of them reaches state, and bumping the version sends them again.
+func TestAccAlmTokens_writeOnly(t *testing.T) {
+	gl, az, bb, bbc, gh := rname("glwo"), rname("azwo"), rname("bbwo"), rname("bbcwo"), rname("ghwh")
+	bbCloud := editionRank[testEdition(t)] >= editionRank["enterprise"]
+	cfg := func(version string) string {
+		c := fmt.Sprintf(`
+resource "sonarqube_alm_gitlab" "gl" {
+  key                      = %[1]q
+  url                      = "https://gitlab.example.com/api/v4"
+  personal_access_token_wo = "glpat-%[6]s"
+  credentials_wo_version   = %[6]q
+}
+resource "sonarqube_alm_azure" "az" {
+  key                      = %[2]q
+  url                      = "https://dev.azure.com/acme"
+  personal_access_token_wo = "az-%[6]s"
+  credentials_wo_version   = %[6]q
+}
+resource "sonarqube_alm_github" "gh" {
+  key                    = %[5]q
+  url                    = "https://api.github.com/"
+  app_id                 = "3"
+  client_id              = "Iv1.wh"
+  client_secret_wo       = "secret-%[6]s"
+  private_key_wo         = %[7]q
+  webhook_secret_wo      = "hook-%[6]s"
+  credentials_wo_version = %[6]q
+}
+`, gl, az, bb, bbc, gh, version, testPrivateKey)
+		// Below Enterprise, Bitbucket Server and Cloud share the single Bitbucket slot.
+		if bbCloud {
+			c += fmt.Sprintf(`
+resource "sonarqube_alm_bitbucket_cloud" "bbc" {
+  key                    = %q
+  workspace              = "acme"
+  client_id              = "consumer"
+  client_secret_wo       = "consumer-%s"
+  credentials_wo_version = %q
+}`, bbc, version, version)
+		} else {
+			c += fmt.Sprintf(`
+resource "sonarqube_alm_bitbucket" "bb" {
+  key                      = %q
+  url                      = "https://bitbucket.example.com"
+  personal_access_token_wo = "bb-%s"
+  credentials_wo_version   = %q
+}`, bb, version, version)
+		}
+		return c
+	}
+	bbName, bbAttr := "sonarqube_alm_bitbucket.bb", "personal_access_token"
+	if bbCloud {
+		bbName, bbAttr = "sonarqube_alm_bitbucket_cloud.bbc", "client_secret"
+	}
+	noSecrets := resource.ComposeAggregateTestCheckFunc(
+		resource.TestCheckNoResourceAttr("sonarqube_alm_gitlab.gl", "personal_access_token"),
+		resource.TestCheckNoResourceAttr("sonarqube_alm_gitlab.gl", "personal_access_token_wo"),
+		resource.TestCheckNoResourceAttr("sonarqube_alm_azure.az", "personal_access_token"),
+		resource.TestCheckNoResourceAttr("sonarqube_alm_azure.az", "personal_access_token_wo"),
+		resource.TestCheckNoResourceAttr("sonarqube_alm_github.gh", "webhook_secret"),
+		resource.TestCheckNoResourceAttr("sonarqube_alm_github.gh", "webhook_secret_wo"),
+		resource.TestCheckNoResourceAttr(bbName, bbAttr),
+		resource.TestCheckNoResourceAttr(bbName, bbAttr+"_wo"),
+	)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testProviders,
+		TerraformVersionChecks:   []tfversion.TerraformVersionCheck{tfversion.SkipBelow(tfversion.Version1_11_0)},
+		Steps: []resource.TestStep{
+			// A write-only token needs credentials_wo_version.
+			{
+				Config: fmt.Sprintf(`
+resource "sonarqube_alm_gitlab" "gl" {
+  key                      = %q
+  url                      = "https://gitlab.example.com/api/v4"
+  personal_access_token_wo = "glpat-x"
+}`, gl),
+				ExpectError: regexp.MustCompile(`credentials_wo_version`),
+			},
+			// A required token must be given in one of its two forms.
+			{
+				Config: fmt.Sprintf(`
+resource "sonarqube_alm_azure" "az" {
+  key = %q
+  url = "https://dev.azure.com/acme"
+}`, az),
+				ExpectError: regexp.MustCompile(`(?s)personal_access_token.*personal_access_token_wo`),
+			},
+			{Config: cfg("1"), Check: noSecrets},
+			{ResourceName: "sonarqube_alm_gitlab.gl", ImportState: true, ImportStateVerify: true,
+				ImportStateVerifyIgnore: []string{"credentials_wo_version"}},
+			{Config: cfg("2"), ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: []plancheck.PlanCheck{
+				plancheck.ExpectResourceAction("sonarqube_alm_gitlab.gl", plancheck.ResourceActionUpdate),
+				plancheck.ExpectResourceAction("sonarqube_alm_azure.az", plancheck.ResourceActionUpdate),
+				plancheck.ExpectResourceAction("sonarqube_alm_github.gh", plancheck.ResourceActionUpdate),
+				plancheck.ExpectResourceAction(bbName, plancheck.ResourceActionUpdate),
+			}}, Check: noSecrets},
+		},
+	})
+}

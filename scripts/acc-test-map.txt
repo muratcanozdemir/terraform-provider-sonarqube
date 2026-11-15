@@ -46,7 +46,7 @@ internal/provider/resource_group.go             TestAccGroupAndMembers|TestAccDa
 internal/provider/resource_permissions.go       TestAccPermission|TestAccAction_applyPermissionTemplate|TestAccDataSources_identity
 internal/provider/resource_branch_retention.go   TestAccProjectBranchRetention
 internal/provider/resource_provisioning.go       TestAccGithubConfiguration|TestAccGitlabConfiguration|TestAccScimProvisioning|TestAccProvisioning_
-internal/provider/resource_project_extras.go    TestAccPlugin|TestAccWebhook|TestAccNewCodePeriods|TestAccProjectLinksAndMainBranch|TestAccDataSources_branchesAndGateStatus|TestAccApplicationBranch
+internal/provider/resource_project_extras.go    TestAccPlugin|TestAccWebhook|TestAccNewCodePeriods|TestAccProjectLinks|TestAccDataSources_branchesAndGateStatus|TestAccApplicationBranch
 internal/provider/resource_project.go           TestAccProject|TestAccSettings|TestAccIdentity|TestAccListResources
 internal/provider/resource_qualitygate.go       TestAccQualityGate|TestAccDataSources_quality|TestAccDataSources_branchesAndGateStatus|TestAccIdentity|TestAccListResources
 internal/provider/resource_qualityprofile.go    TestAccQualityProfile|TestAccDataSources_quality|TestAccIdentity|TestAccListResources
@@ -59,6 +59,7 @@ internal/provider/settings.go                   TestAccSettings|TestAccSecuredSe
 
 # Test helpers and fixtures used by the migration job only.
 scripts/migration-test.sh       MIGRATION
+scripts/examples-test.sh        NONE
 test/migration/*                MIGRATION
 
 # Build, test harness and dependencies.
