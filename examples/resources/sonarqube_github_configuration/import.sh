@@ -1,0 +1,1 @@
+terraform import sonarqube_github_configuration.example 'github-configuration'

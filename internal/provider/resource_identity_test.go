@@ -156,7 +156,7 @@ func TestAccUserExternalIdentity(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// Leave no GitLab configuration behind for other tests.
+			// Leave no GitLab configuration behind for the tests that manage one.
 			t.Cleanup(func() {
 				if err := resetSettings(context.Background(), c, "", keys); err != nil {
 					t.Errorf("resetting GitLab settings: %v", err)
