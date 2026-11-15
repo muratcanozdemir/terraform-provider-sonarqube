@@ -315,11 +315,19 @@ resource "sonarqube_setting" "consent" {
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testProviders,
 		CheckDestroy: func(*terraform.State) error {
-			if ok, err := pending(key); err != nil || ok {
-				return fmt.Errorf("installation of %s still pending (err %v)", key, err)
+			stillPending, err := pending(key)
+			if err != nil {
+				return err
 			}
-			if ok, err := pending(other); err != nil || !ok {
-				return fmt.Errorf("the pending installation of %s was not restored (err %v)", other, err)
+			if stillPending {
+				return fmt.Errorf("installation of %s still pending", key)
+			}
+			restored, err := pending(other)
+			if err != nil {
+				return err
+			}
+			if !restored {
+				return fmt.Errorf("the pending installation of %s was not restored", other)
 			}
 			return nil
 		},
