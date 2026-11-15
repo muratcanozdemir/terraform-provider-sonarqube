@@ -224,6 +224,7 @@ func TestValidateSettingBlocks(t *testing.T) {
 		"duplicate key": {block("a", true, false), block("a", true, false)},
 		"none set":      {block("a", false, false)},
 		"two set":       {block("a", true, true)},
+		"secured key":   {block("sonar.auth.github.clientSecret.secured", true, false)},
 	} {
 		var d diag.Diagnostics
 		validateSettingBlocks(ctx, blocks, &d)

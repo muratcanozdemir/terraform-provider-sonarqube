@@ -9,6 +9,10 @@
 # with the same tree as TAG: the release pull request's run normally, since
 # merging it produces the same tree, or a manual run on the tag itself. While
 # such a run is still in progress it waits, up to GATE_TIMEOUT seconds.
+#
+# The REST API documents display_title and head_commit.tree_id on workflow
+# runs, but not that display_title is the workflow's run-name. Should it not
+# be, no run matches and the gate refuses the release: it fails safe.
 set -euo pipefail
 
 tag=${1:?usage: release-gate.sh TAG}

@@ -27,6 +27,8 @@ func settingID(key, component string) string {
 // ---------------------------------------------------------------------------
 // sonarqube_setting
 
+var _ resource.ResourceWithValidateConfig = (*settingResource)(nil)
+
 type settingResource struct{ resourceBase }
 
 func newSettingResource() resource.Resource { return &settingResource{} }
@@ -68,6 +70,21 @@ func (r *settingResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Validators:  []validator.List{listvalidator.ExactlyOneOf(oneOf...), listvalidator.SizeAtLeast(1)}},
 		},
 	}
+}
+
+// ValidateConfig rejects secured keys: SonarQube never returns their value,
+// so the setting would look deleted on every refresh and be set again.
+func (r *settingResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var key types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("key"), &key)...)
+	if isSecuredKey(key) {
+		resp.Diagnostics.AddAttributeError(path.Root("key"), "Secured setting",
+			fmt.Sprintf("%q is a secured setting, whose value SonarQube never returns. Manage it with sonarqube_secured_setting.", key.ValueString()))
+	}
+}
+
+func isSecuredKey(key types.String) bool {
+	return !key.IsNull() && !key.IsUnknown() && strings.HasSuffix(key.ValueString(), ".secured")
 }
 
 func (m *settingResourceModel) block() settingModel {

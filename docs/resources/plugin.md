@@ -3,20 +3,30 @@
 page_title: "sonarqube_plugin Resource - SonarQube"
 subcategory: ""
 description: |-
-  A plugin installed from the Marketplace. Installation and removal take effect when the server restarts; until then the plugin is pending, and restart_required is true.
+  A plugin installed from the Marketplace, which only Community Build has: commercial editions bundle their plugins, and further ones are installed by hand (copied to extensions/plugins, then a restart). Installation and removal take effect when the server restarts; until then the plugin is pending, and restart_required is true. Installing needs sonar.plugins.risk.consent set to ACCEPTED. On a commercial edition, e.g. with state migrated from another provider, destroying the resource only removes it from the state, with a warning: delete the jar by hand to uninstall the plugin.
 ---
 
 # sonarqube_plugin (Resource)
 
-A plugin installed from the Marketplace. Installation and removal take effect when the server restarts; until then the plugin is pending, and `restart_required` is true.
+A plugin installed from the Marketplace, which only Community Build has: commercial editions bundle their plugins, and further ones are installed by hand (copied to `extensions/plugins`, then a restart). Installation and removal take effect when the server restarts; until then the plugin is pending, and `restart_required` is true. Installing needs `sonar.plugins.risk.consent` set to `ACCEPTED`. On a commercial edition, e.g. with state migrated from another provider, destroying the resource only removes it from the state, with a warning: delete the jar by hand to uninstall the plugin.
 
 ## Example Usage
 
 ```terraform
-# Installs a plugin from the SonarQube Marketplace. The server must be
-# restarted for the change to take effect.
+# Installing from the Marketplace needs the administrator's consent to the
+# risk of third-party plugins.
+resource "sonarqube_setting" "plugin_risk_consent" {
+  key   = "sonar.plugins.risk.consent"
+  value = "ACCEPTED"
+}
+
+# Installs a plugin from the SonarQube Marketplace, which only Community
+# Build has; commercial editions install plugins by hand. The server must be
+# restarted for the change to take effect; until then restart_required is
+# true, and destroying the resource cancels the pending installation.
 resource "sonarqube_plugin" "checkstyle" {
-  key = "checkstyle"
+  key        = "checkstyle"
+  depends_on = [sonarqube_setting.plugin_risk_consent]
 }
 ```
 

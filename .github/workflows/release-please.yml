@@ -35,10 +35,11 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # The release pull request is opened with the workflow token, so it does
-  # not trigger pull_request workflows. Dispatch the full acceptance tier on
-  # its branch instead; release.yml refuses to release code that has not
-  # passed it.
+  # The release pull request is opened with the workflow token, so its
+  # pull_request runs wait for a maintainer's approval. Dispatch the full
+  # acceptance tier on its branch instead (workflow_dispatch runs start even
+  # when the workflow token triggers them); release.yml refuses to release
+  # code that has not passed it.
   release-pr-acceptance:
     needs: release-please
     if: ${{ needs.release-please.outputs.pr != '' }}
