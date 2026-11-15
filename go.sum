@@ -124,8 +124,8 @@ github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyua
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/mitchellh/reflectwalk v1.0.2 h1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=
 github.com/mitchellh/reflectwalk v1.0.2/go.mod h1:mSTlrgnPZtwu0c4WaC2kGObEpuNDbx0jmZXqmk4esnw=
-github.com/muratcanozdemir/sonarqube-go-client v1.0.2 h1:h5S7ycdIappG0SzID+ntguy2Un2xwbS+iuOU3uXFM4I=
-github.com/muratcanozdemir/sonarqube-go-client v1.0.2/go.mod h1:s6Hg1uZ3D8gd0b31qFJKClXA8cJScqDPJY/qeC+tXrY=
+github.com/muratcanozdemir/sonarqube-go-client v1.0.3 h1:JDOJlv7cK5UH+9JarDzXmE/lZPFTVp3z3/DNdjhGhv4=
+github.com/muratcanozdemir/sonarqube-go-client v1.0.3/go.mod h1:s6Hg1uZ3D8gd0b31qFJKClXA8cJScqDPJY/qeC+tXrY=
 github.com/oklog/run v1.2.0 h1:O8x3yXwah4A73hJdlrwo/2X6J62gE5qTMusH0dvz60E=
 github.com/oklog/run v1.2.0/go.mod h1:mgDbKRSwPhJfesJ4PntqFUbKQRZ50NgmZTSPlFA0YFk=
 github.com/pjbgf/sha1cd v0.3.2 h1:a9wb0bp1oC2TGwStyn0Umc/IGKQnEgF0vVaZ8QF8eo4=
