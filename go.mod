@@ -9,7 +9,7 @@ require (
 	github.com/hashicorp/terraform-plugin-log v0.11.0
 	github.com/hashicorp/terraform-plugin-testing v1.16.0
 	github.com/muratcanozdemir/sonarqube-go-client v1.0.2
-	golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.25.0
 )
 
 require (
