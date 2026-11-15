@@ -295,6 +295,7 @@ func (p *sonarqubeProvider) Resources(context.Context) []func() resource.Resourc
 		withIdentity(newProjectResource, projectIdentity),
 		newProjectLinkResource,
 		newProjectMainBranchResource,
+		newBranchRetentionResource,
 		withIdentity(newQualityGateResource, nameIdentity("Quality gate")),
 		newQualityGateProjectAssociationResource,
 		newQualityGateUsergroupAssociationResource,
