@@ -36,7 +36,7 @@ resource "sonarqube_qualityprofile_activate_rule" "cognitive_complexity" {
 
 ### Optional
 
-- `params` (String) Parameters as `key1=value1;key2=value2`. When omitted, parameters are not tracked.
+- `params` (String) Parameters as `key1=value1;key2=value2`. When omitted, parameters are not tracked. Keys and values must not have surrounding spaces, and values must not be empty (omit the parameter to use its default). SonarQube silently ignores a key the rule does not have, so the provider fails the apply when a parameter was not stored as given.
 - `reset` (String) Reset severity and parameters of an inherited rule to the parent's values (`true`/`false`).
 - `severity` (String) Severity override. When omitted, the rule's default applies and drift is not tracked.
 

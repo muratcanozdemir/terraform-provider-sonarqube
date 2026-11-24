@@ -65,17 +65,21 @@ func (r *qualityGateResource) Schema(_ context.Context, _ resource.SchemaRequest
 			"copy_from": schema.StringAttribute{Optional: true, Description: "Name of a gate to copy on creation.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"is_default": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
-				Description: "Make this the default gate. Unsetting it, or destroying the gate while default, makes the built-in gate the default again."},
+				Description: "Make this the default gate. Unsetting it, or destroying the gate while default, makes the gate that was " +
+					"default before Terraform made this one default the default again, or the built-in gate when that one is unknown or gone."},
 		},
 		Blocks: map[string]schema.Block{
 			"condition": schema.ListNestedBlock{
 				Description: "A gate condition. Metrics must be unique within a gate.",
 				NestedObject: schema.NestedBlockObject{Attributes: map[string]schema.Attribute{
-					"id":     schema.StringAttribute{Computed: true, Description: "Condition ID."},
-					"metric": schema.StringAttribute{Required: true, Description: "Metric key, e.g. `new_coverage`."},
+					"id": schema.StringAttribute{Computed: true, Description: "Condition ID."},
+					"metric": schema.StringAttribute{Required: true, Description: "Metric key, e.g. `new_coverage`.",
+						Validators: []validator.String{stringvalidator.LengthAtLeast(1), noSurroundingSpace{}}},
 					"op": schema.StringAttribute{Required: true, Description: "`GT` (fails above threshold) or `LT` (fails below).",
 						Validators: []validator.String{stringvalidator.OneOf("GT", "LT")}},
-					"threshold": schema.StringAttribute{Required: true, Description: "Error threshold."},
+					"threshold": schema.StringAttribute{Required: true,
+						Description: "Error threshold, kept as written (`80` and `80.0` are different values). Ratings take `1` (A) to `5` (E).",
+						Validators:  []validator.String{stringvalidator.LengthAtLeast(1), noSurroundingSpace{}}},
 				}},
 			},
 		},
@@ -170,29 +174,66 @@ func (r *qualityGateResource) syncConditions(ctx context.Context, gate string, w
 	}
 }
 
-// builtInGate returns the name of the built-in gate, which is made default
-// when this gate stops being the default.
-func builtInGate(ctx context.Context, c *sonarqube.Client) (string, error) {
-	l, _, err := c.Qualitygates.List(ctx)
+// builtInGate returns the name of the built-in gate made default when no
+// previous default is known: "Sonar way", else the first built-in one
+// (Enterprise also ships "Sonar way for Agentic AI").
+func builtInGate(gates []*sonarqube.QualitygatesListResponseQualitygate) (string, error) {
+	var first string
+	for _, g := range gates {
+		if !g.IsBuiltIn {
+			continue
+		}
+		if g.Name == "Sonar way" {
+			return g.Name, nil
+		}
+		if first == "" {
+			first = g.Name
+		}
+	}
+	if first == "" {
+		return "", fmt.Errorf("no built-in quality gate found")
+	}
+	return first, nil
+}
+
+// makeDefault makes name the default gate. It returns the gate it replaced,
+// or "" when name already was the default.
+func (r *qualityGateResource) makeDefault(ctx context.Context, name string) (string, error) {
+	l, _, err := r.c().Qualitygates.List(ctx)
 	if err != nil {
 		return "", err
 	}
+	prev := ""
 	for _, g := range l.Qualitygates {
-		if g.IsBuiltIn {
-			return g.Name, nil
+		if g.IsDefault && g.Name != name {
+			prev = g.Name
 		}
 	}
-	return "", fmt.Errorf("no built-in quality gate found")
+	_, err = r.c().Qualitygates.SetDefault(ctx, &sonarqube.QualitygatesSetDefaultOptions{Name: name})
+	return prev, err
 }
 
-func (r *qualityGateResource) setDefault(ctx context.Context, name string, on bool) error {
-	if !on {
-		var err error
-		if name, err = builtInGate(ctx, r.c()); err != nil {
-			return err
-		}
+// releaseDefault makes another gate the default if name is the default: the
+// remembered previous default when it still exists, else the built-in gate.
+func (r *qualityGateResource) releaseDefault(ctx context.Context, name, remembered string) error {
+	l, _, err := r.c().Qualitygates.List(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := r.c().Qualitygates.SetDefault(ctx, &sonarqube.QualitygatesSetDefaultOptions{Name: name})
+	exists, isDefault := map[string]bool{}, false
+	for _, g := range l.Qualitygates {
+		exists[g.Name] = true
+		isDefault = isDefault || (g.IsDefault && g.Name == name)
+	}
+	if !isDefault {
+		return nil // something else already is
+	}
+	target, err := restoreTarget(remembered, name, func(n string) bool { return exists[n] },
+		func() (string, error) { return builtInGate(l.Qualitygates) })
+	if err != nil {
+		return err
+	}
+	_, err = r.c().Qualitygates.SetDefault(ctx, &sonarqube.QualitygatesSetDefaultOptions{Name: target})
 	return err
 }
 
@@ -269,10 +310,12 @@ func (r *qualityGateResource) Create(ctx context.Context, req resource.CreateReq
 		}
 	}
 	if plan.IsDefault.ValueBool() {
-		if err := r.setDefault(ctx, name, true); err != nil {
+		prev, err := r.makeDefault(ctx, name)
+		if err != nil {
 			apiError(&resp.Diagnostics, "Unable to make "+name+" the default quality gate", err)
 			return
 		}
+		resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, prev)...)
 	}
 	if !r.readInto(ctx, &state, &resp.Diagnostics) {
 		resp.Diagnostics.AddError("Quality gate disappeared", name+" was not found after creation.")
@@ -317,7 +360,16 @@ func (r *qualityGateResource) Update(ctx context.Context, req resource.UpdateReq
 		}
 	}
 	if !plan.IsDefault.Equal(state.IsDefault) {
-		if err := r.setDefault(ctx, name, plan.IsDefault.ValueBool()); err != nil {
+		var err error
+		if plan.IsDefault.ValueBool() {
+			var prev string
+			if prev, err = r.makeDefault(ctx, name); err == nil {
+				resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, prev)...)
+			}
+		} else if err = r.releaseDefault(ctx, name, previousDefault(ctx, req.Private)); err == nil {
+			resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, "")...)
+		}
+		if err != nil {
 			apiError(&resp.Diagnostics, "Unable to change the default quality gate", err)
 			return
 		}
@@ -346,7 +398,7 @@ func (r *qualityGateResource) Delete(ctx context.Context, req resource.DeleteReq
 		return
 	}
 	if g.IsDefault {
-		if err := r.setDefault(ctx, name, false); err != nil {
+		if err := r.releaseDefault(ctx, name, previousDefault(ctx, req.Private)); err != nil {
 			apiError(&resp.Diagnostics, "Unable to move the default away from quality gate "+name, err)
 			return
 		}
@@ -361,6 +413,13 @@ func (r *qualityGateResource) ImportState(ctx context.Context, req resource.Impo
 	g, err := r.show(ctx, req.ID)
 	if err != nil {
 		apiError(&resp.Diagnostics, "Unable to import quality gate "+req.ID, err)
+		return
+	}
+	if g.IsBuiltIn {
+		// SonarQube refuses every change to a built-in gate, and its deletion.
+		resp.Diagnostics.AddError("Cannot manage a built-in quality gate",
+			fmt.Sprintf("%q is built into SonarQube, which forbids renaming, changing or deleting it. Read it with the "+
+				"sonarqube_qualitygate data source, or copy it into a gate of your own with copy_from.", g.Name))
 		return
 	}
 	m := qualityGateModel{ID: types.StringValue(g.Name), Name: types.StringValue(g.Name), CopyFrom: types.StringNull(), IsDefault: types.BoolValue(g.IsDefault)}

@@ -52,7 +52,7 @@ resource "sonarqube_portfolio" "company" {
 - `regexp` (String) Regular expression on project keys, for REGEXP mode.
 - `selected_projects` (Attributes Set) Projects, for MANUAL mode. (see [below for nested schema](#nestedatt--selected_projects))
 - `selection_mode` (String) How projects are selected: `NONE`, `MANUAL`, `TAGS`, `REGEXP` or `REST` (all remaining projects).
-- `tags` (List of String) Tags, for TAGS mode.
+- `tags` (List of String) Project tags, for TAGS mode. Kept in the order and case given.
 - `visibility` (String) `public` or `private`; changes in place.
 
 ### Read-Only

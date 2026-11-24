@@ -38,15 +38,13 @@ func findProfile(ctx context.Context, c *sonarqube.Client, key, language, name s
 }
 
 // builtInDefaultProfile returns the name of the built-in profile of a
-// language, made default when a managed profile stops being the default.
-func builtInDefaultProfile(ctx context.Context, c *sonarqube.Client, language string) (string, error) {
-	res, _, err := c.Qualityprofiles.Search(ctx, &sonarqube.QualityprofilesSearchOptions{Language: language})
-	if err != nil {
-		return "", err
-	}
+// language made default when no previous default is known: "Sonar way"
+// (before SonarQube 2026), else the first built-in profile listed, which on
+// SonarQube 2026 is "Sonar way core", the default of a fresh install.
+func builtInDefaultProfile(profiles []*sonarqube.QualityprofilesSearchResponseProfile, language string) (string, error) {
 	var builtIn []string
-	for _, p := range res.Profiles {
-		if p.IsBuiltIn {
+	for _, p := range profiles {
+		if p.IsBuiltIn && p.Language == language {
 			builtIn = append(builtIn, p.Name)
 		}
 	}
@@ -97,7 +95,9 @@ func (r *qualityProfileResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"language": schema.StringAttribute{Required: true, Description: "Language key, e.g. `java`.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"is_default": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
-				Description: "Make this the language's default profile. Unsetting it makes the built-in profile the default again."},
+				Description: "Make this the language's default profile. Unsetting it, or destroying the profile while default, makes " +
+					"the profile that was default before Terraform made this one default the default again, or the built-in " +
+					"profile when that one is unknown or gone."},
 			"parent": schema.StringAttribute{Optional: true,
 				Description: "Name of the parent profile to inherit rules from. Changing it re-parents the profile in place."},
 			"backup": schema.StringAttribute{Optional: true,
@@ -274,15 +274,50 @@ func (r *qualityProfileResource) setParent(ctx context.Context, m *qualityProfil
 	return err
 }
 
-func (r *qualityProfileResource) setDefault(ctx context.Context, m *qualityProfileModel, on bool) error {
-	name := m.Name.ValueString()
-	if !on {
-		var err error
-		if name, err = builtInDefaultProfile(ctx, r.c(), m.Language.ValueString()); err != nil {
-			return err
+// makeDefault makes m the default profile of its language. It returns the
+// profile it replaced, or "" when m already was the default.
+func (r *qualityProfileResource) makeDefault(ctx context.Context, m *qualityProfileModel) (string, error) {
+	lang, name := m.Language.ValueString(), m.Name.ValueString()
+	res, _, err := r.c().Qualityprofiles.Search(ctx, &sonarqube.QualityprofilesSearchOptions{Language: lang})
+	if err != nil {
+		return "", err
+	}
+	prev := ""
+	for _, p := range res.Profiles {
+		if p.IsDefault && p.Language == lang && p.Name != name {
+			prev = p.Name
 		}
 	}
-	_, err := r.c().Qualityprofiles.SetDefault(ctx, &sonarqube.QualityprofilesSetDefaultOptions{Language: m.Language.ValueString(), QualityProfile: name})
+	_, err = r.c().Qualityprofiles.SetDefault(ctx, &sonarqube.QualityprofilesSetDefaultOptions{Language: lang, QualityProfile: name})
+	return prev, err
+}
+
+// releaseDefault makes another profile the default of m's language if m is
+// the default: the remembered previous default when it still exists, else
+// the built-in profile.
+func (r *qualityProfileResource) releaseDefault(ctx context.Context, m *qualityProfileModel, remembered string) error {
+	lang, name := m.Language.ValueString(), m.Name.ValueString()
+	res, _, err := r.c().Qualityprofiles.Search(ctx, &sonarqube.QualityprofilesSearchOptions{Language: lang})
+	if err != nil {
+		return err
+	}
+	exists, isDefault := map[string]bool{}, false
+	for _, p := range res.Profiles {
+		if p.Language != lang {
+			continue
+		}
+		exists[p.Name] = true
+		isDefault = isDefault || (p.IsDefault && p.Key == m.ID.ValueString())
+	}
+	if !isDefault {
+		return nil // something else already is
+	}
+	target, err := restoreTarget(remembered, name, func(n string) bool { return exists[n] },
+		func() (string, error) { return builtInDefaultProfile(res.Profiles, lang) })
+	if err != nil {
+		return err
+	}
+	_, err = r.c().Qualityprofiles.SetDefault(ctx, &sonarqube.QualityprofilesSetDefaultOptions{Language: lang, QualityProfile: target})
 	return err
 }
 
@@ -319,10 +354,12 @@ func (r *qualityProfileResource) Create(ctx context.Context, req resource.Create
 		}
 	}
 	if plan.IsDefault.ValueBool() {
-		if err := r.setDefault(ctx, &plan, true); err != nil {
+		prev, err := r.makeDefault(ctx, &plan)
+		if err != nil {
 			apiError(&resp.Diagnostics, "Unable to make quality profile "+plan.Name.ValueString()+" the default", err)
 			return
 		}
+		resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, prev)...)
 	}
 	if ok, err := r.readInto(ctx, &state); err != nil || !ok {
 		resp.Diagnostics.AddError("Unable to read quality profile after creation", fmt.Sprint(err))
@@ -412,7 +449,19 @@ func (r *qualityProfileResource) Update(ctx context.Context, req resource.Update
 		}
 	}
 	if !plan.IsDefault.Equal(state.IsDefault) {
-		if err := r.setDefault(ctx, &plan, plan.IsDefault.ValueBool()); err != nil {
+		var err error
+		if plan.IsDefault.ValueBool() {
+			var prev string
+			if prev, err = r.makeDefault(ctx, &plan); err == nil {
+				resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, prev)...)
+			}
+		} else {
+			plan.ID = state.ID
+			if err = r.releaseDefault(ctx, &plan, previousDefault(ctx, req.Private)); err == nil {
+				resp.Diagnostics.Append(rememberDefault(ctx, resp.Private, "")...)
+			}
+		}
+		if err != nil {
 			apiError(&resp.Diagnostics, "Unable to change the default quality profile", err)
 			return
 		}
@@ -453,7 +502,7 @@ func (r *qualityProfileResource) Delete(ctx context.Context, req resource.Delete
 		return
 	}
 	if p, err := findProfile(ctx, r.c(), state.ID.ValueString(), lang, ""); err == nil && p != nil && p.IsDefault {
-		if err := r.setDefault(ctx, &state, false); err != nil {
+		if err := r.releaseDefault(ctx, &state, previousDefault(ctx, req.Private)); err != nil {
 			apiError(&resp.Diagnostics, "Unable to move the default away from "+name, err)
 			return
 		}
@@ -477,6 +526,13 @@ func (r *qualityProfileResource) ImportState(ctx context.Context, req resource.I
 	}
 	if p == nil {
 		resp.Diagnostics.AddError("Quality profile not found", fmt.Sprintf("No profile matches %q (use the profile key or language/name).", req.ID))
+		return
+	}
+	if p.IsBuiltIn {
+		// SonarQube refuses every change to a built-in profile, and its deletion.
+		resp.Diagnostics.AddError("Cannot manage a built-in quality profile",
+			fmt.Sprintf("%q (%s) is built into SonarQube, which forbids renaming, changing or deleting it. Read it with the "+
+				"sonarqube_qualityprofile data source, inherit from it with parent, or copy it with copy_from.", p.Name, p.Language))
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), p.Key)...)
@@ -660,7 +716,10 @@ func (r *activateRuleResource) Schema(_ context.Context, _ resource.SchemaReques
 			"severity": schema.StringAttribute{Optional: true, Description: "Severity override. When omitted, the rule's default applies and drift is not tracked.",
 				Validators: []validator.String{stringvalidator.OneOf(severities...)}},
 			"params": schema.StringAttribute{Optional: true,
-				Description: "Parameters as `key1=value1;key2=value2`. When omitted, parameters are not tracked."},
+				Description: "Parameters as `key1=value1;key2=value2`. When omitted, parameters are not tracked. Keys and values " +
+					"must not have surrounding spaces, and values must not be empty (omit the parameter to use its default). " +
+					"SonarQube silently ignores a key the rule does not have, so the provider fails the apply when a parameter " +
+					"was not stored as given."},
 			"reset": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("false"),
 				Description: "Reset severity and parameters of an inherited rule to the parent's values (`true`/`false`).",
 				Validators:  []validator.String{stringvalidator.OneOf("true", "false")}},
@@ -692,6 +751,93 @@ func activeIn(ctx context.Context, c *sonarqube.Client, rule, profile string) (*
 	return nil, nil
 }
 
+var _ resource.ResourceWithValidateConfig = (*activateRuleResource)(nil)
+
+// ValidateConfig checks the params syntax. SonarQube answers 204 and
+// silently ignores a parameter whose key it does not know (including one
+// with trailing spaces), trims values, and resets a parameter given an empty
+// value to its default: each would show as a permanent diff.
+func (r *activateRuleResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var params types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("params"), &params)...)
+	if params.IsNull() || params.IsUnknown() {
+		return
+	}
+	for _, problem := range paramsProblems(params.ValueString()) {
+		resp.Diagnostics.AddAttributeError(path.Root("params"), "Invalid rule parameters", problem)
+	}
+}
+
+// paramsProblems lists what is wrong with a `key1=value1;key2=value2` string.
+func paramsProblems(s string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for kv := range strings.SplitSeq(s, ";") {
+		if kv == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(kv, "=")
+		switch {
+		case !ok:
+			out = append(out, fmt.Sprintf("%q has no '=': write key=value.", kv))
+		case strings.TrimSpace(k) == "":
+			out = append(out, fmt.Sprintf("%q has no key.", kv))
+		case strings.TrimSpace(k) != k || strings.TrimSpace(v) != v:
+			out = append(out, fmt.Sprintf("%q has spaces around its key or value, which SonarQube does not keep.", kv))
+		case v == "":
+			out = append(out, fmt.Sprintf("%q has an empty value, which SonarQube treats as resetting %s to its default: leave it out instead.", kv, k))
+		case seen[k]:
+			out = append(out, fmt.Sprintf("%q is set more than once.", k))
+		}
+		seen[strings.TrimSpace(k)] = true
+	}
+	return out
+}
+
+// checkParams reports configured parameters that SonarQube did not apply:
+// keys the rule does not have, and values stored differently.
+func (r *activateRuleResource) checkParams(ctx context.Context, m *activateRuleModel) error {
+	want := parseParams(m.Params.ValueString())
+	if len(want) == 0 {
+		return nil
+	}
+	res, _, err := r.c().Rules.Show(ctx, &sonarqube.RulesShowOptions{Key: m.Rule.ValueString(), Actives: new(true)})
+	if err != nil {
+		return err
+	}
+	var defined []string
+	if res.Rule != nil {
+		for _, p := range res.Rule.Params {
+			defined = append(defined, p.Key)
+		}
+	}
+	have := map[string]string{}
+	for _, a := range res.Actives {
+		if a.QProfile == m.Key.ValueString() {
+			for _, p := range a.Params {
+				have[p.Key] = p.Value
+			}
+		}
+	}
+	var problems []string
+	for _, k := range slices.Sorted(maps.Keys(want)) {
+		switch {
+		case !slices.Contains(defined, k):
+			list := "none"
+			if len(defined) > 0 {
+				list = strings.Join(defined, ", ")
+			}
+			problems = append(problems, fmt.Sprintf("rule %s has no parameter %q (its parameters: %s)", m.Rule.ValueString(), k, list))
+		case have[k] != want[k]:
+			problems = append(problems, fmt.Sprintf("SonarQube stored %s=%q, not %q", k, have[k], want[k]))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("SonarQube did not apply every parameter: %s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 func parseParams(s string) map[string]string {
 	out := map[string]string{}
 	for kv := range strings.SplitSeq(s, ";") {
@@ -714,6 +860,11 @@ func (r *activateRuleResource) Create(ctx context.Context, req resource.CreateRe
 	defer unlock()
 	if err := r.activate(ctx, &plan); err != nil {
 		apiError(&resp.Diagnostics, "Unable to activate rule "+plan.Rule.ValueString(), err)
+		return
+	}
+	if err := r.checkParams(ctx, &plan); err != nil {
+		// Activating again is harmless, so a corrected configuration retries.
+		apiError(&resp.Diagnostics, "Rule "+plan.Rule.ValueString()+" activated with other parameters", err)
 		return
 	}
 	plan.ID = types.StringValue(plan.Key.ValueString() + "/" + plan.Rule.ValueString())
@@ -785,6 +936,10 @@ func (r *activateRuleResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	if err := r.activate(ctx, &plan); err != nil {
 		apiError(&resp.Diagnostics, "Unable to update rule "+plan.Rule.ValueString(), err)
+		return
+	}
+	if err := r.checkParams(ctx, &plan); err != nil {
+		apiError(&resp.Diagnostics, "Rule "+plan.Rule.ValueString()+" updated with other parameters", err)
 		return
 	}
 	for _, child := range keep {

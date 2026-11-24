@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/mapvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -297,7 +298,8 @@ func (r *portfolioResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"id": schema.StringAttribute{Computed: true, Description: "Identifier of this resource in Terraform state.", PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 			"key": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 				Validators: []validator.String{projectKeyValidator{}}, Description: "Portfolio key."},
-			"name":        schema.StringAttribute{Required: true, Description: "Name.", Validators: []validator.String{stringvalidator.LengthBetween(1, 255)}},
+			"name": schema.StringAttribute{Required: true, Description: "Name.",
+				Validators: []validator.String{stringvalidator.LengthBetween(1, 255), noSurroundingSpace{}}},
 			"description": schema.StringAttribute{Optional: true, Description: "Description."},
 			"qualifier":   schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, Description: "`VW`."},
 			"visibility": schema.StringAttribute{Optional: true, Computed: true, Description: "`public` or `private`; changes in place.",
@@ -305,9 +307,14 @@ func (r *portfolioResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"selection_mode": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("NONE"),
 				Description: "How projects are selected: `NONE`, `MANUAL`, `TAGS`, `REGEXP` or `REST` (all remaining projects).",
 				Validators:  []validator.String{stringvalidator.OneOf("NONE", "MANUAL", "TAGS", "REGEXP", "REST")}},
-			"branch": schema.StringAttribute{Optional: true, Description: "Branch to select, for TAGS, REGEXP and REST modes. Defaults to main branches."},
-			"tags":   schema.ListAttribute{Optional: true, ElementType: types.StringType, Description: "Tags, for TAGS mode."},
-			"regexp": schema.StringAttribute{Optional: true, Description: "Regular expression on project keys, for REGEXP mode."},
+			"branch": schema.StringAttribute{Optional: true, Description: "Branch to select, for TAGS, REGEXP and REST modes. Defaults to main branches.",
+				Validators: []validator.String{stringvalidator.LengthAtLeast(1), noSurroundingSpace{}}},
+			"tags": schema.ListAttribute{Optional: true, ElementType: types.StringType,
+				Description: "Project tags, for TAGS mode. Kept in the order and case given.",
+				Validators: []validator.List{listvalidator.SizeAtLeast(1), listvalidator.ValueStringsAre(
+					stringvalidator.RegexMatches(regexpMust(`^\S+$`), "must be a non-empty tag without spaces"))}},
+			"regexp": schema.StringAttribute{Optional: true, Description: "Regular expression on project keys, for REGEXP mode.",
+				Validators: []validator.String{stringvalidator.LengthAtLeast(1), noSurroundingSpace{}}},
 			"selected_projects": schema.SetNestedAttribute{Optional: true, Description: "Projects, for MANUAL mode.",
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 					"project_key":       schema.StringAttribute{Required: true, Description: "Key of a project to include in the portfolio."},

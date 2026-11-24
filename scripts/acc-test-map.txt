@@ -42,6 +42,7 @@ internal/provider/resource_alm.go               TestAccAlm|TestAccBinding
 internal/provider/resource_application_branch.go  TestAccApplicationBranch|TestAccDataSources_branchesAndGateStatus
 internal/provider/resource_delegation.go        TestAccQualityGate|TestAccQualityProfile
 internal/provider/resource_email_configuration.go TestAccEmailConfiguration|TestAccAction_sendTestEmail
+internal/provider/defaults.go                   TestAccQualityGate|TestAccQualityProfile
 internal/provider/managed.go                    TestAccManagedInstance|TestAccGroupAndMembers|TestAccUser
 internal/provider/resource_group.go             TestAccManagedInstance|TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccQualityGate|TestAccQualityProfile|TestAccIdentity|TestAccListResources|TestAccProvider_unknownConfig
 internal/provider/resource_permissions.go       TestAccPermission|TestAccAction_applyPermissionTemplate|TestAccDataSources_identity
