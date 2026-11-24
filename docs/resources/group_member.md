@@ -3,12 +3,12 @@
 page_title: "sonarqube_group_member Resource - SonarQube"
 subcategory: ""
 description: |-
-  Membership of one user in one group. Import ID: group[login].
+  Membership of one user in one group. Import ID: group[login]. On an instance with GitHub, GitLab or SCIM AUTO_PROVISIONING, SonarQube refuses to add or remove members, so adding one fails at plan time, and destroying one only removes it from state, with a warning.
 ---
 
 # sonarqube_group_member (Resource)
 
-Membership of one user in one group. Import ID: `group[login]`.
+Membership of one user in one group. Import ID: `group[login]`. On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to add or remove members, so adding one fails at plan time, and destroying one only removes it from state, with a warning.
 
 ## Example Usage
 

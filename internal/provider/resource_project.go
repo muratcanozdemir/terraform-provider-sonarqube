@@ -120,7 +120,7 @@ func (r *projectResource) ValidateConfig(ctx context.Context, req resource.Valid
 		resp.Diagnostics.Append(e.(types.Object).As(ctx, &b, basetypes.ObjectAsOptions{})...)
 		blocks = append(blocks, b)
 	}
-	validateSettingBlocks(ctx, blocks, &resp.Diagnostics)
+	validateSettingBlocks(blocks, &resp.Diagnostics)
 }
 
 func (r *projectResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {

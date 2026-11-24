@@ -79,7 +79,8 @@ func commonProvisioningAttrs(platform, members string) map[string]schema.Attribu
 		"provisioning_type": schema.StringAttribute{Optional: true, Computed: true, Default: stringdefault.StaticString("JIT"),
 			Validators: []validator.String{stringvalidator.OneOf(provisioningTypes...)},
 			Description: "`JIT` creates users at their first login. `AUTO_PROVISIONING` synchronizes " + members + " with SonarQube " +
-				"hourly; it needs Developer edition or above."},
+				"hourly; it needs Developer edition or above. SonarQube then refuses to create or change users, groups and group memberships, " +
+				"so plans that would do so with `sonarqube_user`, `sonarqube_group` or `sonarqube_group_member` fail."},
 		"synchronize_groups": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(false),
 			Description: "With `JIT`, add users at login to the SonarQube groups named like their " + platform + " groups or teams."},
 		"allow_users_to_sign_up": schema.BoolAttribute{Optional: true, Computed: true,

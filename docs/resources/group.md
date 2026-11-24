@@ -3,12 +3,12 @@
 page_title: "sonarqube_group Resource - SonarQube"
 subcategory: ""
 description: |-
-  A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions.
+  A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions. On an instance with GitHub, GitLab or SCIM AUTO_PROVISIONING, SonarQube refuses to create or change groups, so such plans fail; deleting a group is still allowed.
 ---
 
 # sonarqube_group (Resource)
 
-A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions.
+A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions. On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to create or change groups, so such plans fail; deleting a group is still allowed.
 
 ## Example Usage
 

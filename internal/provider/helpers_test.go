@@ -236,7 +236,6 @@ func TestSameSetting(t *testing.T) {
 }
 
 func TestValidateSettingBlocks(t *testing.T) {
-	ctx := context.Background()
 	block := func(key string, value bool, values bool) settingModel {
 		m := settingModel{Key: types.StringValue(key), Value: types.StringNull(),
 			Values: types.ListNull(types.StringType), FieldValues: types.ListNull(types.MapType{ElemType: types.StringType})}
@@ -249,7 +248,7 @@ func TestValidateSettingBlocks(t *testing.T) {
 		return m
 	}
 	var ok diag.Diagnostics
-	validateSettingBlocks(ctx, []settingModel{block("a", true, false), block("b", false, true)}, &ok)
+	validateSettingBlocks([]settingModel{block("a", true, false), block("b", false, true)}, &ok)
 	if ok.HasError() {
 		t.Errorf("valid blocks: %v", ok)
 	}
@@ -260,7 +259,7 @@ func TestValidateSettingBlocks(t *testing.T) {
 		"secured key":   {block("sonar.auth.github.clientSecret.secured", true, false)},
 	} {
 		var d diag.Diagnostics
-		validateSettingBlocks(ctx, blocks, &d)
+		validateSettingBlocks(blocks, &d)
 		if !d.HasError() {
 			t.Errorf("%s: no error", name)
 		}

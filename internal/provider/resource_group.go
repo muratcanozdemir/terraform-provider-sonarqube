@@ -20,7 +20,28 @@ import (
 // ---------------------------------------------------------------------------
 // sonarqube_group
 
+var (
+	_ resource.ResourceWithModifyPlan = (*groupResource)(nil)
+	_ resource.ResourceWithModifyPlan = (*groupMemberResource)(nil)
+)
+
 type groupResource struct{ resourceBase }
+
+// ModifyPlan refuses to create or change a group on an externally managed
+// instance. Deleting one is allowed there.
+func (r *groupResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	create, update := planChange(&r.resourceBase, req)
+	if !create && !update {
+		return
+	}
+	var name types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("name"), &name)...)
+	verb := "Changing"
+	if create {
+		verb = "Creating"
+	}
+	r.p.refuseIfManaged(ctx, &resp.Diagnostics, fmt.Sprintf("%s group %q", verb, name.ValueString()))
+}
 
 func newGroupResource() resource.Resource { return &groupResource{} }
 
@@ -36,8 +57,9 @@ func (r *groupResource) Metadata(_ context.Context, req resource.MetadataRequest
 
 func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     schemaVersion,
-		Description: "A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions.",
+		Version: schemaVersion,
+		Description: "A SonarQube user group. Renaming a group updates it in place and keeps its members and permissions." +
+			" On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to create or change groups, so such plans fail; deleting a group is still allowed.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{Computed: true, Description: "Group UUID.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
@@ -197,8 +219,9 @@ func (r *groupMemberResource) Metadata(_ context.Context, req resource.MetadataR
 func (r *groupMemberResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
-		Version:     schemaVersion,
-		Description: "Membership of one user in one group. Import ID: `group[login]`.",
+		Version: schemaVersion,
+		Description: "Membership of one user in one group. Import ID: `group[login]`." +
+			" On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to add or remove members, so adding one fails at plan time, and destroying one only removes it from state, with a warning.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{Computed: true, Description: "Identifier of this resource in Terraform state.",
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
@@ -288,6 +311,17 @@ func (r *groupMemberResource) Read(ctx context.Context, req resource.ReadRequest
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
+// ModifyPlan refuses to add a member on an externally managed instance.
+func (r *groupMemberResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	create, update := planChange(&r.resourceBase, req)
+	if !create && !update {
+		return
+	}
+	var plan groupMemberModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	r.p.refuseIfManaged(ctx, &resp.Diagnostics, fmt.Sprintf("Adding %q to group %q", plan.LoginName.ValueString(), plan.Name.ValueString()))
+}
+
 func (r *groupMemberResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
 	// Every attribute requires replacement.
 }
@@ -302,13 +336,27 @@ func (r *groupMemberResource) Delete(ctx context.Context, req resource.DeleteReq
 	if err == nil && id != "" {
 		_, err = r.c().Authorizations.DeleteGroupMembership(ctx, &sonarqube.AuthorizationsDeleteGroupMembershipOptions{ID: id})
 	}
+	if isExternallyManaged(err) {
+		// The identity provider owns memberships now: stop managing this one
+		// rather than fail every destroy.
+		resp.Diagnostics.AddWarning("Group membership left in place",
+			fmt.Sprintf("SonarQube is externally managed and refuses to remove %q from group %q; the membership is now synchronized "+
+				"from the identity provider. It was removed from Terraform state only.", state.LoginName.ValueString(), state.Name.ValueString()))
+		return
+	}
 	if err != nil && !isGone(err) {
 		apiError(&resp.Diagnostics, "Unable to remove group member", err)
 	}
 }
 
 func (r *groupMemberResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	group, rest, ok := strings.Cut(req.ID, "[")
+	// Split at the last '[': a login cannot contain one, a group name can.
+	i := strings.LastIndex(req.ID, "[")
+	ok := i >= 0
+	group, rest := req.ID, ""
+	if ok {
+		group, rest = req.ID[:i], req.ID[i+1:]
+	}
 	login, closed := strings.CutSuffix(rest, "]")
 	if !ok || !closed || group == "" || login == "" {
 		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected `group[login]`, got %q.", req.ID))

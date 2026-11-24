@@ -42,7 +42,8 @@ internal/provider/resource_alm.go               TestAccAlm|TestAccBinding
 internal/provider/resource_application_branch.go  TestAccApplicationBranch|TestAccDataSources_branchesAndGateStatus
 internal/provider/resource_delegation.go        TestAccQualityGate|TestAccQualityProfile
 internal/provider/resource_email_configuration.go TestAccEmailConfiguration|TestAccAction_sendTestEmail
-internal/provider/resource_group.go             TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccQualityGate|TestAccQualityProfile|TestAccIdentity|TestAccListResources|TestAccProvider_unknownConfig
+internal/provider/managed.go                    TestAccManagedInstance|TestAccGroupAndMembers|TestAccUser
+internal/provider/resource_group.go             TestAccManagedInstance|TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccQualityGate|TestAccQualityProfile|TestAccIdentity|TestAccListResources|TestAccProvider_unknownConfig
 internal/provider/resource_permissions.go       TestAccPermission|TestAccAction_applyPermissionTemplate|TestAccDataSources_identity
 internal/provider/resource_branch_retention.go   TestAccProjectBranchRetention
 internal/provider/resource_provisioning.go       TestAccGithubConfiguration|TestAccGitlabConfiguration|TestAccScimProvisioning|TestAccProvisioning_
@@ -52,7 +53,7 @@ internal/provider/resource_qualitygate.go       TestAccQualityGate|TestAccDataSo
 internal/provider/resource_qualityprofile.go    TestAccQualityProfile|TestAccDataSources_quality|TestAccIdentity|TestAccListResources
 internal/provider/resource_rule.go              TestAccQualityProfile|TestAccDataSources_quality
 internal/provider/resource_setting.go           TestAccSettings|TestAccSecuredSetting|TestAccProvider_unknownConfig
-internal/provider/resource_user.go              TestAccUser|TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccIdentity|TestAccListResources
+internal/provider/resource_user.go              TestAccManagedInstance|TestAccUser|TestAccGroupAndMembers|TestAccDataSources_identity|TestAccPermissions|TestAccIdentity|TestAccListResources
 internal/provider/resource_user_token.go        TestAccUserToken
 internal/provider/resource_views.go             TestAccApplicationAndPortfolio|TestAccPortfolio_|TestAccApplicationBranch|TestAccDataSources_portfolio
 internal/provider/settings.go                   TestAccSettings|TestAccSecuredSetting|TestAccProject_lifecycle|TestAccApplicationAndPortfolio|TestAccPortfolio_hierarchy

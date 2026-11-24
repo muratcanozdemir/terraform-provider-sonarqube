@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -52,7 +53,8 @@ func (r *userResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 	resp.Schema = schema.Schema{
 		Version: schemaVersion,
 		Description: "A SonarQube user. Destroying it deactivates the user (and anonymizes it when the provider's " +
-			"`anonymize_user_on_delete` is set); SonarQube never deletes users.",
+			"`anonymize_user_on_delete` is set); SonarQube never deletes users." +
+			" On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to create users or change anything but a local user's password, so such plans fail; deactivation is still allowed.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{Computed: true, Description: "The login."},
 			"uuid": schema.StringAttribute{Computed: true, Description: "User UUID.",
@@ -101,6 +103,12 @@ func (r *userResource) ValidateConfig(ctx context.Context, req resource.Validate
 }
 
 func (r *userResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if create, _ := planChange(&r.resourceBase, req); create {
+		var login types.String
+		resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("login_name"), &login)...)
+		r.p.refuseIfManaged(ctx, &resp.Diagnostics, fmt.Sprintf("Creating user %q", login.ValueString()))
+		return
+	}
 	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
 		return
 	}
@@ -110,6 +118,31 @@ func (r *userResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRe
 	if plan.LoginName.Equal(state.LoginName) {
 		resp.Plan.SetAttribute(ctx, path.Root("id"), state.ID)
 	}
+	// A password change alone is still allowed on a managed instance.
+	if f := userProfileChanges(&state, &plan); len(f) > 0 && r.configured() {
+		r.p.refuseIfManaged(ctx, &resp.Diagnostics, fmt.Sprintf("Changing %s of user %q", strings.Join(f, ", "), state.LoginName.ValueString()))
+	}
+}
+
+// userProfileChanges lists the attributes, other than the password, that a
+// plan changes: the ones an externally managed instance refuses to update.
+func userProfileChanges(state, plan *userModel) []string {
+	var out []string
+	for _, f := range []struct {
+		name    string
+		changed bool
+	}{
+		{"login_name", !plan.LoginName.Equal(state.LoginName)},
+		{"name", !plan.Name.Equal(state.Name)},
+		{"email", !plan.Email.Equal(state.Email)},
+		{"is_local", !plan.IsLocal.Equal(state.IsLocal)},
+		{"scm_accounts", !plan.SCMAccounts.IsUnknown() && !plan.SCMAccounts.Equal(state.SCMAccounts)},
+	} {
+		if f.changed {
+			out = append(out, f.name)
+		}
+	}
+	return out
 }
 
 // findUser looks a user up by UUID when known, else by exact login. It
@@ -330,6 +363,20 @@ func (r *userExternalIdentityResource) Schema(_ context.Context, _ resource.Sche
 				Description: "Provider key, e.g. `LDAP_default`, `github`, `gitlab`, `saml`."},
 		},
 	}
+}
+
+var _ resource.ResourceWithModifyPlan = (*userExternalIdentityResource)(nil)
+
+// ModifyPlan refuses to set an external identity on an externally managed
+// instance.
+func (r *userExternalIdentityResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	create, update := planChange(&r.resourceBase, req)
+	if !create && !update {
+		return
+	}
+	var login types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("login_name"), &login)...)
+	r.p.refuseIfManaged(ctx, &resp.Diagnostics, fmt.Sprintf("Setting the external identity of user %q", login.ValueString()))
 }
 
 func (r *userExternalIdentityResource) set(ctx context.Context, m *userExternalIdentityModel) error {

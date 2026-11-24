@@ -3,12 +3,12 @@
 page_title: "sonarqube_user Resource - SonarQube"
 subcategory: ""
 description: |-
-  A SonarQube user. Destroying it deactivates the user (and anonymizes it when the provider's anonymize_user_on_delete is set); SonarQube never deletes users.
+  A SonarQube user. Destroying it deactivates the user (and anonymizes it when the provider's anonymize_user_on_delete is set); SonarQube never deletes users. On an instance with GitHub, GitLab or SCIM AUTO_PROVISIONING, SonarQube refuses to create users or change anything but a local user's password, so such plans fail; deactivation is still allowed.
 ---
 
 # sonarqube_user (Resource)
 
-A SonarQube user. Destroying it deactivates the user (and anonymizes it when the provider's `anonymize_user_on_delete` is set); SonarQube never deletes users.
+A SonarQube user. Destroying it deactivates the user (and anonymizes it when the provider's `anonymize_user_on_delete` is set); SonarQube never deletes users. On an instance with GitHub, GitLab or SCIM `AUTO_PROVISIONING`, SonarQube refuses to create users or change anything but a local user's password, so such plans fail; deactivation is still allowed.
 
 ## Example Usage
 
