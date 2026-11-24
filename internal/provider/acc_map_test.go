@@ -47,7 +47,7 @@ func TestSelectionMap(t *testing.T) {
 		switch sel := fields[1]; sel {
 		case "ALL", "NONE", "MIGRATION":
 		default:
-			for _, name := range strings.Split(sel, "|") {
+			for name := range strings.SplitSeq(sel, "|") {
 				found := false
 				for d := range defined {
 					found = found || strings.HasPrefix(d, name)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -152,8 +153,8 @@ func isGone(err error) bool {
 }
 
 func isUnknownURL(err error) bool {
-	var e *sonarqube.ErrorResponse
-	if !errors.As(err, &e) || e.StatusCode != 404 {
+	e, ok := errors.AsType[*sonarqube.ErrorResponse](err)
+	if !ok || e.StatusCode != 404 {
 		return false
 	}
 	for _, m := range e.Messages {
@@ -168,8 +169,8 @@ func isUnknownURL(err error) bool {
 // (case-insensitive). Some endpoints answer 400 rather than 404 for a missing
 // object; callers use this to recognise those precisely.
 func hasMessage(err error, s string) bool {
-	var e *sonarqube.ErrorResponse
-	if !errors.As(err, &e) {
+	e, ok := errors.AsType[*sonarqube.ErrorResponse](err)
+	if !ok {
 		return false
 	}
 	s = strings.ToLower(s)
@@ -187,8 +188,8 @@ func apiError(diags *diag.Diagnostics, summary string, err error) {
 }
 
 func explain(err error) string {
-	var e *sonarqube.ErrorResponse
-	if !errors.As(err, &e) {
+	e, ok := errors.AsType[*sonarqube.ErrorResponse](err)
+	if !ok {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return err.Error() + "\n\nThe request timed out. Increase the provider's request_timeout if the server is slow."
 		}
@@ -367,12 +368,8 @@ func splitID(id, sep string, n int, format string) ([]string, error) {
 	if len(parts) != n {
 		return nil, fmt.Errorf("expected an import ID of the form %q, got %q", format, id)
 	}
-	for _, p := range parts {
-		if p == "" {
-			return nil, fmt.Errorf("expected an import ID of the form %q, got %q", format, id)
-		}
+	if slices.Contains(parts, "") {
+		return nil, fmt.Errorf("expected an import ID of the form %q, got %q", format, id)
 	}
 	return parts, nil
 }
-
-func ptr[T any](v T) *T { return &v }

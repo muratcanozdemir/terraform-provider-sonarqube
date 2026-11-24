@@ -8,6 +8,17 @@ make test    # unit tests; acceptance tests skip without TF_ACC
 make lint
 ```
 
+## Code style
+
+Write Go for the version in `go.mod`, using its current idioms: `new(v)` for a
+pointer to a value, `slices`/`maps` helpers over hand-written loops,
+`strings.Cut`/`SplitSeq`, `errors.AsType`, `sync.WaitGroup.Go`. `make lint`
+enables the `modernize` linter, which flags the older forms; `go fix ./...`
+rewrites most of them. Run it after raising the Go version.
+
+Split import IDs with `splitID` (in `common.go`) rather than by hand, so every
+resource reports a malformed ID the same way.
+
 ## Acceptance tests
 
 Acceptance tests run real Terraform against a real SonarQube server and need

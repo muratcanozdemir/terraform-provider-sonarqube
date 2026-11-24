@@ -170,9 +170,9 @@ func (m *emailConfigurationModel) secrets(cfg, state *emailConfigurationModel) (
 			if state != nil && plan.Equal(prior) && !woChanged {
 				return nil
 			}
-			return ptr(plan.ValueString())
+			return new(plan.ValueString())
 		case !wo.IsNull() && woChanged:
-			return ptr(wo.ValueString())
+			return new(wo.ValueString())
 		}
 		return nil
 	}
@@ -191,7 +191,7 @@ func optional(v types.String) *string {
 	if v.IsNull() || v.IsUnknown() {
 		return nil
 	}
-	return ptr(v.ValueString())
+	return new(v.ValueString())
 }
 
 func (r *emailConfigurationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -299,7 +299,7 @@ func (r *emailConfigurationResource) Update(ctx context.Context, req resource.Up
 	// ones included.
 	configured := func(plain, wo types.String) *string {
 		if !plain.IsNull() {
-			return ptr(plain.ValueString())
+			return new(plain.ValueString())
 		}
 		return optional(wo)
 	}
@@ -318,7 +318,7 @@ func (r *emailConfigurationResource) Update(ctx context.Context, req resource.Up
 		if p.Equal(s) || p.IsUnknown() || p.IsNull() {
 			return nil
 		}
-		return ptr(p.ValueString())
+		return new(p.ValueString())
 	}
 	body := &sonarqube.EmailConfigurationUpdateRestRequest{
 		Host: changed(plan.Host, state.Host), SecurityProtocol: changed(plan.SecurityProtocol, state.SecurityProtocol),
@@ -330,7 +330,7 @@ func (r *emailConfigurationResource) Update(ctx context.Context, req resource.Up
 		OauthClientID: id, OauthClientSecret: sec,
 	}
 	if !plan.Port.Equal(state.Port) {
-		body.Port = ptr(strconv.FormatInt(plan.Port.ValueInt64(), 10))
+		body.Port = new(strconv.FormatInt(plan.Port.ValueInt64(), 10))
 	}
 	res, _, err := r.c().SystemV2.UpdateEmailConfiguration(ctx, &sonarqube.SystemV2UpdateEmailConfigurationOptions{
 		ID: state.ID.ValueString(), Body: body})

@@ -101,7 +101,7 @@ func (r *ruleResource) Create(ctx context.Context, req resource.CreateRequest, r
 		Severity: plan.Severity.ValueString(), Status: plan.Status.ValueString(), Type: plan.Type.ValueString(),
 	}
 	if plan.PreventReactivation.ValueString() == "true" {
-		opts.PreventReactivation = ptr(true)
+		opts.PreventReactivation = new(true)
 	}
 	res, _, err := r.c().Rules.Create(ctx, opts)
 	if err != nil {

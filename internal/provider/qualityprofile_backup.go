@@ -97,12 +97,11 @@ func withName(s, name string) (string, error) {
 		}
 	}
 	// No <name>: add one as the profile's first child.
-	i := strings.Index(s, "<profile>")
-	if i < 0 {
+	before, after, ok := strings.Cut(s, "<profile>")
+	if !ok {
 		return "", errors.New("the backup has no <profile> element")
 	}
-	i += len("<profile>")
-	return s[:i] + "<name>" + esc.String() + "</name>" + s[i:], nil
+	return before + "<profile><name>" + esc.String() + "</name>" + after, nil
 }
 
 // backupDiff lists how the server's profile (got) differs from a configured

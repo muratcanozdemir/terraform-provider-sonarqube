@@ -672,7 +672,7 @@ func (r *activateRuleResource) activate(ctx context.Context, m *activateRuleMode
 	opts := &sonarqube.QualityprofilesActivateRuleOptions{Key: m.Key.ValueString(), Rule: m.Rule.ValueString(),
 		Severity: m.Severity.ValueString(), Params: m.Params.ValueString()}
 	if m.Reset.ValueString() == "true" {
-		opts.Reset = ptr(true)
+		opts.Reset = new(true)
 	}
 	_, err := r.c().Qualityprofiles.ActivateRule(ctx, opts)
 	return err
@@ -680,7 +680,7 @@ func (r *activateRuleResource) activate(ctx context.Context, m *activateRuleMode
 
 // activeIn returns the activation of rule in profile, or nil.
 func activeIn(ctx context.Context, c *sonarqube.Client, rule, profile string) (*sonarqube.RulesShowResponseActive, error) {
-	res, _, err := c.Rules.Show(ctx, &sonarqube.RulesShowOptions{Key: rule, Actives: ptr(true)})
+	res, _, err := c.Rules.Show(ctx, &sonarqube.RulesShowOptions{Key: rule, Actives: new(true)})
 	if err != nil {
 		return nil, err
 	}
@@ -694,7 +694,7 @@ func activeIn(ctx context.Context, c *sonarqube.Client, rule, profile string) (*
 
 func parseParams(s string) map[string]string {
 	out := map[string]string{}
-	for _, kv := range strings.Split(s, ";") {
+	for kv := range strings.SplitSeq(s, ";") {
 		if k, v, ok := strings.Cut(kv, "="); ok && k != "" {
 			out[strings.TrimSpace(k)] = v
 		}
@@ -811,7 +811,7 @@ func descendantsWithoutRule(ctx context.Context, c *sonarqube.Client, profile, r
 	if len(children[profile]) == 0 {
 		return nil, nil
 	}
-	res, _, err := c.Rules.Show(ctx, &sonarqube.RulesShowOptions{Key: rule, Actives: ptr(true)})
+	res, _, err := c.Rules.Show(ctx, &sonarqube.RulesShowOptions{Key: rule, Actives: new(true)})
 	if err != nil {
 		return nil, err
 	}
@@ -843,7 +843,7 @@ func (r *activateRuleResource) Delete(ctx context.Context, req resource.DeleteRe
 	_, err := r.c().Qualityprofiles.DeactivateRule(ctx, &sonarqube.QualityprofilesDeactivateRuleOptions{Key: state.Key.ValueString(), Rule: state.Rule.ValueString()})
 	if err != nil && hasMessage(err, "inherited") {
 		// An inherited rule cannot be deactivated; revert our override instead.
-		_, err = r.c().Qualityprofiles.ActivateRule(ctx, &sonarqube.QualityprofilesActivateRuleOptions{Key: state.Key.ValueString(), Rule: state.Rule.ValueString(), Reset: ptr(true)})
+		_, err = r.c().Qualityprofiles.ActivateRule(ctx, &sonarqube.QualityprofilesActivateRuleOptions{Key: state.Key.ValueString(), Rule: state.Rule.ValueString(), Reset: new(true)})
 	}
 	if err != nil && !isGone(err) {
 		apiError(&resp.Diagnostics, "Unable to deactivate rule "+state.Rule.ValueString(), err)

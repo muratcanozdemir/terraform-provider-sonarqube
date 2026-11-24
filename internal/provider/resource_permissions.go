@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -202,9 +203,7 @@ func (r *permissionsResource) current(ctx context.Context, m *permissionsModel) 
 	}
 	items, err := collect(ctx, 100, func(ctx context.Context, page, size int) ([]principalPerms, int64, error) {
 		pq := url.Values{}
-		for k, v := range q {
-			pq[k] = v
-		}
+		maps.Copy(pq, q)
 		pq.Set("p", fmt.Sprint(page))
 		pq.Set("ps", fmt.Sprint(size))
 		var raw json.RawMessage

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -53,9 +54,9 @@ func secretAttrs(name, desc string, required bool) map[string]schema.Attribute {
 func secret(plan, cfg types.String) *string {
 	switch {
 	case !plan.IsNull() && !plan.IsUnknown():
-		return ptr(plan.ValueString())
+		return new(plan.ValueString())
 	case !cfg.IsNull() && !cfg.IsUnknown():
-		return ptr(cfg.ValueString())
+		return new(cfg.ValueString())
 	}
 	return nil
 }
@@ -91,12 +92,10 @@ func commonProvisioningAttrs(platform, members string) map[string]schema.Attribu
 	}
 }
 
-func merge(maps ...map[string]schema.Attribute) map[string]schema.Attribute {
+func merge(ms ...map[string]schema.Attribute) map[string]schema.Attribute {
 	out := map[string]schema.Attribute{}
-	for _, m := range maps {
-		for k, v := range m {
-			out[k] = v
-		}
+	for _, m := range ms {
+		maps.Copy(out, m)
 	}
 	return out
 }

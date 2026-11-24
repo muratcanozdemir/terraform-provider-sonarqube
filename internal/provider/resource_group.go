@@ -57,7 +57,7 @@ func (r *groupResource) Create(ctx context.Context, req resource.CreateRequest, 
 	}
 	body := &sonarqube.GroupCreateRestRequest{Name: plan.Name.ValueString()}
 	if !plan.Description.IsNull() {
-		body.Description = ptr(plan.Description.ValueString())
+		body.Description = new(plan.Description.ValueString())
 	}
 	g, _, err := r.c().Authorizations.CreateGroup(ctx, &sonarqube.AuthorizationsCreateGroupOptions{Body: body})
 	if err != nil {
@@ -98,10 +98,10 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	}
 	body := &sonarqube.GroupUpdateRestRequest{}
 	if !plan.Name.Equal(state.Name) {
-		body.Name = ptr(plan.Name.ValueString())
+		body.Name = new(plan.Name.ValueString())
 	}
 	if !plan.Description.Equal(state.Description) {
-		body.Description = ptr(plan.Description.ValueString()) // "" clears
+		body.Description = new(plan.Description.ValueString()) // "" clears
 	}
 	g, _, err := r.c().Authorizations.UpdateGroup(ctx, &sonarqube.AuthorizationsUpdateGroupOptions{ID: state.ID.ValueString(), Body: body})
 	if err != nil {
