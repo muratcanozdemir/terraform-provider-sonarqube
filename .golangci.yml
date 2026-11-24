@@ -6,6 +6,7 @@ linters:
     - errorlint
     - gosec
     - misspell
+    - modernize
     - noctx
     - revive
     - unconvert

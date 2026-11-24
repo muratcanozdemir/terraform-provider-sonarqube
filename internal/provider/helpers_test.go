@@ -284,9 +284,7 @@ func TestKeyedMutex(t *testing.T) {
 	var inA, maxA atomic.Int32
 	var wg sync.WaitGroup
 	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			unlock := k.lock("a")
 			defer unlock()
 			n := inA.Add(1)
@@ -298,7 +296,7 @@ func TestKeyedMutex(t *testing.T) {
 			}
 			time.Sleep(time.Millisecond)
 			inA.Add(-1)
-		}()
+		})
 	}
 	// A different key is not blocked by "a".
 	unlockA := k.lock("a")

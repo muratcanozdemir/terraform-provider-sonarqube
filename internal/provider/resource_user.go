@@ -129,7 +129,7 @@ func findUser(ctx context.Context, c *sonarqube.Client, uuid, login string) (*so
 		return u, nil
 	}
 	users, err := collect(ctx, 500, func(ctx context.Context, page, size int) ([]*sonarqube.UserRestResponseForAdmins, int64, error) {
-		res, _, err := c.UsersManagement.Search(ctx, &sonarqube.UsersManagementSearchOptions{Q: login, Active: ptr(true), PageIndex: &page, PageSize: &size})
+		res, _, err := c.UsersManagement.Search(ctx, &sonarqube.UsersManagementSearchOptions{Q: login, Active: new(true), PageIndex: &page, PageSize: &size})
 		if err != nil {
 			return nil, 0, err
 		}
@@ -171,16 +171,16 @@ func (r *userResource) Create(ctx context.Context, req resource.CreateRequest, r
 	body := &sonarqube.UserCreateRestRequest{
 		Login: plan.LoginName.ValueString(),
 		Name:  plan.Name.ValueString(),
-		Local: ptr(plan.IsLocal.ValueBool()),
+		Local: new(plan.IsLocal.ValueBool()),
 	}
 	if !plan.Email.IsNull() {
-		body.Email = ptr(plan.Email.ValueString())
+		body.Email = new(plan.Email.ValueString())
 	}
 	switch {
 	case !cfg.PasswordWO.IsNull():
-		body.Password = ptr(cfg.PasswordWO.ValueString()) // write-only: from config, never plan
+		body.Password = new(cfg.PasswordWO.ValueString()) // write-only: from config, never plan
 	case !plan.Password.IsNull():
-		body.Password = ptr(plan.Password.ValueString())
+		body.Password = new(plan.Password.ValueString())
 	}
 	if !plan.SCMAccounts.IsUnknown() {
 		body.SCMAccounts = stringsOf(ctx, plan.SCMAccounts, &resp.Diagnostics)
@@ -228,16 +228,16 @@ func (r *userResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	body := &sonarqube.UserUpdateRestRequest{}
 	changed := false
 	if !plan.LoginName.Equal(state.LoginName) {
-		body.Login, changed = ptr(plan.LoginName.ValueString()), true
+		body.Login, changed = new(plan.LoginName.ValueString()), true
 	}
 	if !plan.Name.Equal(state.Name) {
-		body.Name, changed = ptr(plan.Name.ValueString()), true
+		body.Name, changed = new(plan.Name.ValueString()), true
 	}
 	if !plan.Email.Equal(state.Email) {
-		body.Email, changed = ptr(plan.Email.ValueString()), true
+		body.Email, changed = new(plan.Email.ValueString()), true
 	}
 	if !plan.IsLocal.Equal(state.IsLocal) {
-		body.Local, changed = ptr(plan.IsLocal.ValueBool()), true
+		body.Local, changed = new(plan.IsLocal.ValueBool()), true
 	}
 	if !plan.SCMAccounts.IsUnknown() && !plan.SCMAccounts.Equal(state.SCMAccounts) {
 		body.SCMAccounts = &sonarqube.UpdateFieldListString{Value: stringsOf(ctx, plan.SCMAccounts, &resp.Diagnostics)}
@@ -285,7 +285,7 @@ func (r *userResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	}
 	opts := &sonarqube.UsersManagementDeactivateOptions{ID: state.UUID.ValueString()}
 	if r.p.anonymizeUsers {
-		opts.Anonymize = ptr(true)
+		opts.Anonymize = new(true)
 	}
 	_, err := r.c().UsersManagement.Deactivate(ctx, opts)
 	if err != nil && !isGone(err) {
@@ -343,8 +343,8 @@ func (r *userExternalIdentityResource) set(ctx context.Context, m *userExternalI
 	}
 	_, _, err = r.c().UsersManagement.Update(ctx, &sonarqube.UsersManagementUpdateOptions{ID: u.ID,
 		Body: &sonarqube.UserUpdateRestRequest{
-			ExternalProvider: ptr(m.ExternalProvider.ValueString()),
-			ExternalLogin:    ptr(m.ExternalIdentity.ValueString()),
+			ExternalProvider: new(m.ExternalProvider.ValueString()),
+			ExternalLogin:    new(m.ExternalIdentity.ValueString()),
 		}})
 	return err
 }

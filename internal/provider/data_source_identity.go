@@ -32,7 +32,7 @@ func searchGroups(ctx context.Context, c *sonarqube.Client, q string) ([]*sonarq
 }
 
 func searchUsers(ctx context.Context, c *sonarqube.Client, opts sonarqube.UsersManagementSearchOptions) ([]*sonarqube.UserRestResponseForAdmins, error) {
-	opts.Active = ptr(true)
+	opts.Active = new(true)
 	return collect(ctx, 500, func(ctx context.Context, page, size int) ([]*sonarqube.UserRestResponseForAdmins, int64, error) {
 		o := opts
 		o.PageIndex, o.PageSize = &page, &size

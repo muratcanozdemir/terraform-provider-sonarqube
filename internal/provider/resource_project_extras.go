@@ -617,13 +617,13 @@ func (r *projectMainBranchResource) Delete(context.Context, resource.DeleteReque
 }
 
 func (r *projectMainBranchResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	i := strings.Index(req.ID, "/")
-	if i <= 0 || i == len(req.ID)-1 {
-		resp.Diagnostics.AddError("Invalid import ID", fmt.Sprintf("Expected `project/name`, got %q.", req.ID))
+	parts, err := splitID(req.ID, "/", 2, "project/name")
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", err.Error())
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &projectMainBranchModel{ID: types.StringValue(req.ID),
-		Project: types.StringValue(req.ID[:i]), Name: types.StringValue(req.ID[i+1:])})...)
+		Project: types.StringValue(parts[0]), Name: types.StringValue(parts[1])})...)
 }
 
 // ---------------------------------------------------------------------------

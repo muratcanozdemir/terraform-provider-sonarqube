@@ -441,7 +441,7 @@ func (d *profileRulesDataSource) Read(ctx context.Context, req datasource.ReadRe
 		resp.Diagnostics.AddError("Quality profile not found", fmt.Sprintf("No quality profile has the key %q.", key))
 		return
 	}
-	rules, err := searchRules(ctx, d.c(), sonarqube.RulesSearchOptions{Qprofile: key, Activation: ptr(d.active)})
+	rules, err := searchRules(ctx, d.c(), sonarqube.RulesSearchOptions{Qprofile: key, Activation: new(d.active)})
 	if err != nil {
 		apiError(&resp.Diagnostics, "Unable to list rules of quality profile "+key, err)
 		return
@@ -512,7 +512,7 @@ func (d *rulesDataSource) Read(ctx context.Context, req datasource.ReadRequest, 
 		TemplateKey: m.TemplateKey.ValueString(),
 	}
 	if !m.IsTemplate.IsNull() {
-		opts.IsTemplate = ptr(m.IsTemplate.ValueBool())
+		opts.IsTemplate = new(m.IsTemplate.ValueBool())
 	}
 	if resp.Diagnostics.HasError() {
 		return
@@ -664,7 +664,7 @@ func (d *languagesDataSource) Read(ctx context.Context, req datasource.ReadReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	res, _, err := d.c().Languages.List(ctx, &sonarqube.LanguagesListOptions{Q: m.Search.ValueString(), Ps: ptr(0)})
+	res, _, err := d.c().Languages.List(ctx, &sonarqube.LanguagesListOptions{Q: m.Search.ValueString(), Ps: new(0)})
 	if err != nil {
 		apiError(&resp.Diagnostics, "Unable to list languages", err)
 		return

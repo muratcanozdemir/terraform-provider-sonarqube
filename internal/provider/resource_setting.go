@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -280,12 +281,10 @@ func (r *securedSettingResource) Read(ctx context.Context, req resource.ReadRequ
 		apiError(&resp.Diagnostics, "Unable to read "+key, err)
 		return
 	}
-	for _, k := range settings.SetSecuredSettings {
-		if k == key {
-			state.ID = types.StringValue(settingID(key, state.Component.ValueString()))
-			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
-			return
-		}
+	if slices.Contains(settings.SetSecuredSettings, key) {
+		state.ID = types.StringValue(settingID(key, state.Component.ValueString()))
+		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+		return
 	}
 	resp.State.RemoveResource(ctx)
 }

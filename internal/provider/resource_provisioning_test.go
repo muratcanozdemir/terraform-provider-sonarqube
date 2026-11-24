@@ -203,14 +203,15 @@ func TestAccScimProvisioning(t *testing.T) {
 		{"sonar.auth.saml.enabled", "true"},
 	}
 	samlKeys := []string{"sonar.auth.saml.certificate.secured"}
-	saml := fmt.Sprintf(`
+	var saml strings.Builder
+	fmt.Fprintf(&saml, `
 resource "sonarqube_secured_setting" "saml_cert" {
   key   = "sonar.auth.saml.certificate.secured"
   value = %q
 }`, testCertificate(t))
 	deps := []string{"sonarqube_secured_setting.saml_cert"}
 	for i, kv := range samlSettings {
-		saml += fmt.Sprintf(`
+		fmt.Fprintf(&saml, `
 resource "sonarqube_setting" "saml%d" {
   key   = %q
   value = %q
@@ -222,7 +223,7 @@ resource "sonarqube_setting" "saml%d" {
 	// SCIM makes users and groups read-only: never leave it enabled. Cleanups
 	// run last-in first-out, so this runs before SAML is reset.
 	t.Cleanup(func() { _, _ = c.ScimManagement.Disable(context.Background()) })
-	scim := saml + fmt.Sprintf(`
+	scim := saml.String() + fmt.Sprintf(`
 resource "sonarqube_scim_provisioning" "s" {
   depends_on = [%s]
 }`, strings.Join(deps, ", "))
