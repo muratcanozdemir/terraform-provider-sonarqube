@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/muratcanozdemir/terraform-provider-sonarqube/compare/v1.1.0...v1.1.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* edge cases of quality gates, quality profiles and portfolios ([#17](https://github.com/muratcanozdemir/terraform-provider-sonarqube/issues/17)) ([372327b](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/372327b2afdc71aa2b7b82174ca735766dd3ba5e))
+* handle externally managed instances and edge cases in paging, settings and errors ([#15](https://github.com/muratcanozdemir/terraform-provider-sonarqube/issues/15)) ([6fa4dcd](https://github.com/muratcanozdemir/terraform-provider-sonarqube/commit/6fa4dcd8d4e6ce497e6639b5814c14b75c3e49a6))
+
 ## [1.1.0](https://github.com/muratcanozdemir/terraform-provider-sonarqube/compare/v1.0.1...v1.1.0) (2026-11-15)
 
 
