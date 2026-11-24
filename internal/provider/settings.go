@@ -164,7 +164,7 @@ func (s settingModel) desired(ctx context.Context, diags *diag.Diagnostics) apiS
 
 // validateSettingBlocks checks that each block sets exactly one value form and
 // that keys are unique.
-func validateSettingBlocks(ctx context.Context, blocks []settingModel, diags *diag.Diagnostics) {
+func validateSettingBlocks(blocks []settingModel, diags *diag.Diagnostics) {
 	seen := map[string]bool{}
 	for _, b := range blocks {
 		if b.Key.IsUnknown() {
@@ -188,7 +188,6 @@ func validateSettingBlocks(ctx context.Context, blocks []settingModel, diags *di
 			diags.AddError("Invalid setting", fmt.Sprintf("Setting %q must set exactly one of value, values or field_values.", k))
 		}
 	}
-	_ = ctx
 }
 
 func sameSetting(want, have apiSetting) bool {
@@ -198,7 +197,7 @@ func sameSetting(want, have apiSetting) bool {
 	case len(want.Values) > 0:
 		hv := have.Values
 		if len(hv) == 0 && have.Value != "" {
-			hv = strings.Split(have.Value, ",")
+			hv = splitStoredValues(have.Value)
 		}
 		return slices.Equal(want.Values, hv)
 	default:
@@ -307,7 +306,7 @@ func settingToModel(ctx context.Context, s apiSetting, shape settingModel, diags
 	case !shape.Values.IsNull():
 		vs := s.Values
 		if len(vs) == 0 && s.Value != "" {
-			vs = strings.Split(s.Value, ",")
+			vs = splitStoredValues(s.Value)
 		}
 		m.Values = stringList(vs)
 	case !shape.FieldValues.IsNull():
@@ -320,6 +319,17 @@ func settingToModel(ctx context.Context, s apiSetting, shape settingModel, diags
 		m.Value = types.StringValue(s.Value)
 	}
 	return m
+}
+
+// splitStoredValues splits the single value SonarQube reports for a
+// multi-value setting that has no definition: it joins the values with ','
+// after encoding a ',' inside a value as "%2C".
+func splitStoredValues(s string) []string {
+	vs := strings.Split(s, ",")
+	for i, v := range vs {
+		vs[i] = strings.ReplaceAll(v, "%2C", ",")
+	}
+	return vs
 }
 
 func fieldValuesList(ctx context.Context, fvs []map[string]string, diags *diag.Diagnostics) types.List {

@@ -63,7 +63,7 @@ variable "github_private_key" {
 - `private_key` (String, Sensitive) Private key (PEM) of the GitHub App. Stored in state; prefer `private_key_wo`. SonarQube does not return it, so drift cannot be detected.
 - `private_key_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only form of `private_key`, never stored in state (Terraform 1.11+). Change `credentials_wo_version` to apply a new value.
 - `project_visibility` (Boolean) With `AUTO_PROVISIONING`, make provisioned projects public or private like their repository; otherwise they are private. Defaults to the server's choice.
-- `provisioning_type` (String) `JIT` creates users at their first login. `AUTO_PROVISIONING` synchronizes the users and teams of the allowed organizations with SonarQube hourly; it needs Developer edition or above.
+- `provisioning_type` (String) `JIT` creates users at their first login. `AUTO_PROVISIONING` synchronizes the users and teams of the allowed organizations with SonarQube hourly; it needs Developer edition or above. SonarQube then refuses to create or change users, groups and group memberships, so plans that would do so with `sonarqube_user`, `sonarqube_group` or `sonarqube_group_member` fail.
 - `synchronize_groups` (Boolean) With `JIT`, add users at login to the SonarQube groups named like their GitHub groups or teams.
 - `web_url` (String) Web URL: `https://github.com/`, or `https://github.example.com/` for GitHub Enterprise.
 

@@ -26,6 +26,7 @@ type providerData struct {
 	anonymizeUsers bool
 	locks          *keyedMutex
 	info           *serverInfoCache
+	managed        *managedCache
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +201,11 @@ func explain(err error) string {
 		msg = string(e.Body)
 	}
 	detail := fmt.Sprintf("%s %s returned HTTP %d", e.Method, e.URL, e.StatusCode)
+	// Keep the context a caller wrapped around the API error, such as
+	// "revoke admin: ", which the rebuilt message would otherwise drop.
+	if outer, inner := err.Error(), e.Error(); outer != inner && strings.HasSuffix(outer, inner) {
+		detail = strings.TrimSuffix(outer, inner) + detail
+	}
 	if msg != "" {
 		detail += ": " + msg
 	}
@@ -211,6 +217,7 @@ func explain(err error) string {
 	case isUnknownURL(err):
 		detail += "\n\nThe server does not provide this API. It may need a higher edition or a different SonarQube version."
 	}
+	detail += managedHint(err)
 	return detail
 }
 
@@ -269,7 +276,9 @@ const consistencyWindow = 30 * time.Second
 const maxPages = 200
 
 // collect reads every page of a v1 or v2 search. fetch returns one page's
-// items and the reported total.
+// items and the reported total. A total of 0 or less means the response
+// carried no paging information: reading then continues until a short page,
+// rather than stopping after a full first page.
 func collect[T any](ctx context.Context, pageSize int, fetch func(ctx context.Context, page, size int) ([]T, int64, error)) ([]T, error) {
 	var all []T
 	for page := 1; page <= maxPages; page++ {
@@ -278,7 +287,7 @@ func collect[T any](ctx context.Context, pageSize int, fetch func(ctx context.Co
 			return nil, err
 		}
 		all = append(all, items...)
-		if len(items) < pageSize || int64(len(all)) >= total {
+		if len(items) < pageSize || (total > 0 && int64(len(all)) >= total) {
 			return all, nil
 		}
 	}

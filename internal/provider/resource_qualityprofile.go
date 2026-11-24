@@ -695,8 +695,10 @@ func activeIn(ctx context.Context, c *sonarqube.Client, rule, profile string) (*
 func parseParams(s string) map[string]string {
 	out := map[string]string{}
 	for kv := range strings.SplitSeq(s, ";") {
-		if k, v, ok := strings.Cut(kv, "="); ok && k != "" {
-			out[strings.TrimSpace(k)] = v
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			if k = strings.TrimSpace(k); k != "" {
+				out[k] = v
+			}
 		}
 	}
 	return out
@@ -820,10 +822,17 @@ func descendantsWithoutRule(ctx context.Context, c *sonarqube.Client, profile, r
 		active[a.QProfile] = true
 	}
 	var out []string
+	// seen guards against a cycle in the reported parent keys, which would
+	// otherwise never end the walk.
+	seen := map[string]bool{profile: true}
 	queue := slices.Clone(children[profile])
 	for len(queue) > 0 {
 		k := queue[0]
 		queue = queue[1:]
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
 		if !active[k] {
 			out = append(out, k)
 		}

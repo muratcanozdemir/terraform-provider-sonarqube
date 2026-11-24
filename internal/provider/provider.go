@@ -261,6 +261,7 @@ func (p *sonarqubeProvider) Configure(ctx context.Context, req provider.Configur
 			versionOverride: envOr(cfg.InstalledVersion, "INSTALLED_VERSION"),
 			editionOverride: strings.ToLower(envOr(cfg.InstalledEdition, "INSTALLED_EDITION")),
 		},
+		managed: &managedCache{client: client},
 	}
 	tflog.Debug(ctx, "configured SonarQube client", map[string]any{"host": client.BaseURL(), "rps": rps, "max_retries": retry.MaxRetries})
 	resp.DataSourceData = data
