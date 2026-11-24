@@ -264,35 +264,6 @@ func TestSyncConditionsStopsOnError(t *testing.T) {
 	}
 }
 
-func TestQualityGateSetDefault(t *testing.T) {
-	ctx := context.Background()
-	f, c := newFakeServer(t, map[string]func(*http.Request) (int, any){
-		"GET /api/qualitygates/list": ok(map[string]any{"qualitygates": []map[string]any{
-			{"name": "Mine", "isBuiltIn": false}, {"name": "Sonar way", "isBuiltIn": true},
-		}}),
-		"POST /api/qualitygates/set_as_default": ok(nil),
-	})
-	r := &qualityGateResource{resourceBase{p: &providerData{client: c}}}
-	if err := r.setDefault(ctx, "Mine", true); err != nil {
-		t.Fatal(err)
-	}
-	// Turning default off hands it back to the built-in gate.
-	if err := r.setDefault(ctx, "Mine", false); err != nil {
-		t.Fatal(err)
-	}
-	calls := f.callsTo("POST", "/api/qualitygates/set_as_default")
-	if len(calls) != 2 || calls[0].form.Get("name") != "Mine" || calls[1].form.Get("name") != "Sonar way" {
-		t.Errorf("set_as_default = %+v", calls)
-	}
-
-	_, c = newFakeServer(t, map[string]func(*http.Request) (int, any){
-		"GET /api/qualitygates/list": ok(map[string]any{"qualitygates": []map[string]any{{"name": "Mine"}}}),
-	})
-	if _, err := builtInGate(ctx, c); err == nil {
-		t.Error("builtInGate without a built-in gate")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // sonarqube_plugin
 

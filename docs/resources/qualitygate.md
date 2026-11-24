@@ -41,7 +41,7 @@ resource "sonarqube_qualitygate" "strict" {
 
 - `condition` (Block List) A gate condition. Metrics must be unique within a gate. (see [below for nested schema](#nestedblock--condition))
 - `copy_from` (String) Name of a gate to copy on creation.
-- `is_default` (Boolean) Make this the default gate. Unsetting it, or destroying the gate while default, makes the built-in gate the default again.
+- `is_default` (Boolean) Make this the default gate. Unsetting it, or destroying the gate while default, makes the gate that was default before Terraform made this one default the default again, or the built-in gate when that one is unknown or gone.
 
 ### Read-Only
 
@@ -54,7 +54,7 @@ Required:
 
 - `metric` (String) Metric key, e.g. `new_coverage`.
 - `op` (String) `GT` (fails above threshold) or `LT` (fails below).
-- `threshold` (String) Error threshold.
+- `threshold` (String) Error threshold, kept as written (`80` and `80.0` are different values). Ratings take `1` (A) to `5` (E).
 
 Read-Only:
 
